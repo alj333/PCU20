@@ -1,0 +1,31 @@
+# PCU20 Network Manager Configuration
+
+[server]
+bind_address = "0.0.0.0"
+base_port = 6743
+num_ports = 15
+
+[web]
+enabled = true
+host = "0.0.0.0"
+port = 8020
+
+[logging]
+level = "INFO"
+protocol_trace = true
+trace_file = "pcu20_trace.log"
+max_trace_size_mb = 100
+
+[[auth.users]]
+username = "PCU20_USER"
+password = "pcu20"
+
+[[shares]]
+name = "NCDATA"
+path = "/home/user/ncdata"   # Adjust to your local path
+read_only = false
+
+[versioning]
+enabled = true
+strategy = "git"   # "git" or "snapshots"
+max_snapshots = 50

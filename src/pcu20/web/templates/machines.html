@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% set active_page = "machines" %}
+
+{% block title %}Machines - PCU20 Network Manager{% endblock %}
+{% block page_title %}CNC Machines{% endblock %}
+
+{% block content %}
+<div hx-get="/machines/api/list" hx-trigger="every 5s" hx-swap="none">
+    {% if machines %}
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Known Machines</h2>
+            <span class="badge badge--blue">{{ machines | length }}</span>
+        </div>
+        <div class="panel-body">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Status</th>
+                        <th>IP Address</th>
+                        <th>Name</th>
+                        <th>Connections</th>
+                        <th>Files Transferred</th>
+                        <th>Last Seen</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for m in machines %}
+                    <tr>
+                        <td>
+                            {% if m.is_connected %}
+                                <span class="status-pill status-pill--online">Online</span>
+                            {% else %}
+                                <span class="status-pill status-pill--offline">Offline</span>
+                            {% endif %}
+                        </td>
+                        <td><code>{{ m.ip }}</code></td>
+                        <td>{{ m.name }}</td>
+                        <td>{{ m.total_connections }}</td>
+                        <td>{{ m.total_files_transferred }}</td>
+                        <td>{{ m.last_seen }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% else %}
+    <div class="panel">
+        <div class="panel-body">
+            <div class="empty-state">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><path d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 0 0 2.25-2.25V6.75a2.25 2.25 0 0 0-2.25-2.25H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25z"/></svg>
+                <p>No machines have connected yet</p>
+                <span>Configure your Sinumerik CNC controller to connect to this server's IP address on port 6743.</span>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

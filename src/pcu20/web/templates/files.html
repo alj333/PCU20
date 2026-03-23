@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% set active_page = "files" %}
+
+{% block title %}Files - PCU20 Network Manager{% endblock %}
+{% block page_title %}File Browser{% endblock %}
+
+{% block content %}
+<div x-data="fileBrowser()" x-init="init()">
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Browse NC Programs</h2>
+        </div>
+        <div class="panel-body">
+            <div class="toolbar">
+                <div class="toolbar-group">
+                    <label class="toolbar-label">Share</label>
+                    <select class="input" x-model="currentShare" @change="browse()">
+                        <option value="">Select a share...</option>
+                        {% for share in shares %}
+                        <option value="{{ share.name }}">{{ share.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="toolbar-group" style="flex:1">
+                    <label class="toolbar-label">Path</label>
+                    <div class="breadcrumb-bar">
+                        <button class="btn btn--ghost btn--sm" @click="goUp()" :disabled="!currentPath">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><path d="M15 19l-7-7 7-7"/></svg>
+                        </button>
+                        <span class="breadcrumb-path" x-text="'/' + (currentShare || '') + (currentPath ? '/' + currentPath : '')"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel" x-show="currentShare">
+        <div class="panel-body" style="padding:0">
+            <template x-if="entries.length > 0">
+                <table class="data-table data-table--files">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Size</th>
+                            <th>Modified</th>
+                            <th style="width:100px">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="entry in entries" :key="entry.name">
+                            <tr>
+                                <td>
+                                    <div class="file-name">
+                                        <template x-if="entry.is_dir">
+                                            <svg class="file-icon file-icon--dir" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44z"/></svg>
+                                        </template>
+                                        <template x-if="!entry.is_dir">
+                                            <svg class="file-icon file-icon--file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9z"/></svg>
+                                        </template>
+                                        <template x-if="entry.is_dir">
+                                            <a href="#" class="file-link" @click.prevent="enterDir(entry.name)" x-text="entry.name"></a>
+                                        </template>
+                                        <template x-if="!entry.is_dir">
+                                            <span x-text="entry.name"></span>
+                                        </template>
+                                    </div>
+                                </td>
+                                <td class="text-muted" x-text="entry.is_dir ? '—' : formatSize(entry.size)"></td>
+                                <td class="text-muted" x-text="formatDate(entry.modified)"></td>
+                                <td>
+                                    <template x-if="!entry.is_dir">
+                                        <button class="btn btn--ghost btn--sm" @click="showHistory(entry.name)">History</button>
+                                    </template>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </template>
+
+            <template x-if="currentShare && entries.length === 0 && !loading">
+                <div class="empty-state empty-state--small">
+                    <p>Directory is empty</p>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <template x-if="!currentShare">
+        <div class="panel">
+            <div class="panel-body">
+                <div class="empty-state">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><path d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9z"/></svg>
+                    <p>Select a share to browse</p>
+                    <span>Choose a network share from the dropdown above</span>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- Version history modal -->
+    <dialog x-ref="historyDialog" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Version History</h3>
+                <button class="btn btn--ghost btn--sm" @click="$refs.historyDialog.close()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted" style="margin-bottom:1rem">File: <code x-text="historyFile"></code></p>
+                <template x-if="history.length > 0">
+                    <table class="data-table">
+                        <thead><tr><th>Version</th><th>Message</th><th>Date</th></tr></thead>
+                        <tbody>
+                            <template x-for="h in history" :key="h.hash || h.timestamp">
+                                <tr>
+                                    <td><code x-text="h.hash || h.name"></code></td>
+                                    <td x-text="h.message || '—'"></td>
+                                    <td class="text-muted" x-text="h.date || new Date(h.timestamp * 1000).toLocaleString()"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </template>
+                <template x-if="history.length === 0">
+                    <div class="empty-state empty-state--small"><p>No version history available</p></div>
+                </template>
+            </div>
+        </div>
+    </dialog>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function fileBrowser() {
+    return {
+        currentShare: '',
+        currentPath: '',
+        entries: [],
+        history: [],
+        historyFile: '',
+        loading: false,
+
+        init() {},
+
+        async browse() {
+            if (!this.currentShare) return;
+            this.loading = true;
+            const params = new URLSearchParams({share: this.currentShare, path: this.currentPath});
+            const resp = await fetch(`/files/api/browse?${params}`);
+            const data = await resp.json();
+            this.entries = data.entries || [];
+            this.loading = false;
+        },
+
+        enterDir(name) {
+            this.currentPath = this.currentPath ? `${this.currentPath}/${name}` : name;
+            this.browse();
+        },
+
+        goUp() {
+            const parts = this.currentPath.split('/').filter(Boolean);
+            parts.pop();
+            this.currentPath = parts.join('/');
+            this.browse();
+        },
+
+        async showHistory(name) {
+            this.historyFile = name;
+            const filePath = this.currentPath ? `${this.currentPath}/${name}` : name;
+            const params = new URLSearchParams({share: this.currentShare, path: filePath});
+            const resp = await fetch(`/files/api/history?${params}`);
+            const data = await resp.json();
+            this.history = data.history || [];
+            this.$refs.historyDialog.showModal();
+        },
+
+        formatSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+            return (bytes/1024/1024).toFixed(1) + ' MB';
+        },
+
+        formatDate(ts) {
+            return new Date(ts * 1000).toLocaleString();
+        }
+    };
+}
+</script>
+{% endblock %}

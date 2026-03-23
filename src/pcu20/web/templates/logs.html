@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% set active_page = "logs" %}
+
+{% block title %}Logs - PCU20 Network Manager{% endblock %}
+{% block page_title %}Live Logs{% endblock %}
+
+{% block content %}
+<div hx-ext="ws" ws-connect="/ws" x-data="logViewer()">
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Event Stream</h2>
+            <div class="panel-actions">
+                <select class="input input--sm" x-model="filter">
+                    <option value="">All events</option>
+                    <option value="machine">Machine events</option>
+                    <option value="transfer">Transfers</option>
+                    <option value="session">Sessions</option>
+                    <option value="command">Commands</option>
+                    <option value="auth">Authentication</option>
+                </select>
+                <button class="btn btn--ghost btn--sm" @click="clear()">Clear</button>
+            </div>
+        </div>
+        <div class="panel-body" style="padding:0">
+            <div class="log-container" id="log-output">
+                <template x-for="(entry, i) in filteredLogs" :key="i">
+                    <div class="log-entry" :class="'log-' + entry.type.split('.')[0]">
+                        <span class="log-time" x-text="formatTime(entry.ts)"></span>
+                        <span class="log-type" x-text="entry.type"></span>
+                        <span class="log-data" x-text="formatData(entry.data)"></span>
+                    </div>
+                </template>
+                <template x-if="filteredLogs.length === 0">
+                    <div class="empty-state empty-state--small" style="padding: 3rem">
+                        <p>Waiting for events...</p>
+                        <span>Events from CNC connections will stream here in real-time</span>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function logViewer() {
+    return {
+        logs: [],
+        filter: '',
+        maxLogs: 500,
+
+        init() {
+            document.body.addEventListener('htmx:wsAfterMessage', (e) => {
+                try {
+                    const event = JSON.parse(e.detail.message);
+                    this.logs.unshift(event);
+                    if (this.logs.length > this.maxLogs) {
+                        this.logs = this.logs.slice(0, this.maxLogs);
+                    }
+                } catch(err) {}
+            });
+        },
+
+        get filteredLogs() {
+            if (!this.filter) return this.logs;
+            return this.logs.filter(l => l.type.startsWith(this.filter));
+        },
+
+        clear() { this.logs = []; },
+
+        formatTime(ts) {
+            return new Date(ts * 1000).toLocaleTimeString();
+        },
+
+        formatData(data) {
+            if (!data) return '';
+            const parts = [];
+            if (data.peer_ip) parts.push(data.peer_ip);
+            if (data.username) parts.push(data.username);
+            if (data.state) parts.push(data.state);
+            if (data.commands_processed) parts.push(data.commands_processed + ' cmds');
+            if (data.files_transferred) parts.push(data.files_transferred + ' files');
+            return parts.join(' | ') || JSON.stringify(data);
+        }
+    };
+}
+</script>
+{% endblock %}
