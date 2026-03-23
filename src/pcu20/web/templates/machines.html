@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% set active_page = "machines" %}
 
-{% block title %}Machines - PCU20 Network Manager{% endblock %}
+{% block title %}Machines - CNC Network Manager{% endblock %}
 {% block page_title %}CNC Machines{% endblock %}
 
 {% block content %}
@@ -9,19 +9,21 @@
     {% if machines %}
     <div class="panel">
         <div class="panel-header">
-            <h2>Known Machines</h2>
+            <h2>Machine Fleet</h2>
             <span class="badge badge--blue">{{ machines | length }}</span>
         </div>
-        <div class="panel-body">
+        <div class="panel-body" style="padding:0">
             <table class="data-table">
                 <thead>
                     <tr>
                         <th>Status</th>
-                        <th>IP Address</th>
-                        <th>Name</th>
+                        <th>Machine</th>
+                        <th>Protocol</th>
+                        <th>Type</th>
+                        <th>CNC Status</th>
+                        <th>Program</th>
                         <th>Connections</th>
-                        <th>Files Transferred</th>
-                        <th>Last Seen</th>
+                        <th>Files</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -34,26 +36,72 @@
                                 <span class="status-pill status-pill--offline">Offline</span>
                             {% endif %}
                         </td>
-                        <td><code>{{ m.ip }}</code></td>
-                        <td>{{ m.name }}</td>
+                        <td>
+                            <div><strong>{{ m.name }}</strong></div>
+                            <div class="text-muted" style="font-size:0.75rem"><code>{{ m.ip }}</code></div>
+                        </td>
+                        <td><span class="protocol-badge protocol-badge--{{ m.protocol_type }}">{{ m.protocol_type | upper }}</span></td>
+                        <td class="text-muted">{{ m.cnc_type or '—' }}</td>
+                        <td>
+                            {% if m.cnc_status and m.cnc_status != 'unknown' %}
+                                <span class="machine-cnc-status machine-cnc-status--{{ m.cnc_status }}">{{ m.cnc_status | upper }}</span>
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if m.current_program %}
+                                <code>O{{ m.current_program }}</code>
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
                         <td>{{ m.total_connections }}</td>
                         <td>{{ m.total_files_transferred }}</td>
-                        <td class="text-muted" data-timestamp="{{ m.last_seen }}">
-                            <script>document.currentScript.parentElement.textContent = new Date({{ m.last_seen }} * 1000).toLocaleString()</script>
-                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
     </div>
+
+    <!-- Axis positions for connected FOCAS machines -->
+    {% set focas_machines = machines | selectattr('protocol_type', 'equalto', 'focas2') | selectattr('is_connected') | list %}
+    {% if focas_machines %}
+    <div class="section-header" style="margin-top:1.5rem">
+        <h2>Live Axis Positions</h2>
+    </div>
+    <div class="machine-grid">
+        {% for m in focas_machines %}
+        {% if m.axis_position %}
+        <div class="panel" style="margin-bottom:0">
+            <div class="panel-header">
+                <h2>{{ m.name }}</h2>
+                <span class="machine-cnc-status machine-cnc-status--{{ m.cnc_status }}" style="font-size:0.7rem">{{ m.cnc_status | upper }}</span>
+            </div>
+            <div class="panel-body" style="padding:0.75rem 1rem">
+                <div class="axis-display axis-display--wide">
+                    {% for axis, pos in m.axis_position.items() %}
+                    <div class="axis-row">
+                        <span class="axis-label">{{ axis }}</span>
+                        <span class="axis-value">{{ "%.3f" | format(pos) }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+
     {% else %}
     <div class="panel">
         <div class="panel-body">
             <div class="empty-state">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><path d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 0 0 2.25-2.25V6.75a2.25 2.25 0 0 0-2.25-2.25H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25z"/></svg>
-                <p>No machines have connected yet</p>
-                <span>Configure your Sinumerik CNC controller to connect to this server's IP address on port 6743.</span>
+                <p>No machines configured</p>
+                <span>Add CNC machines to your <code>pcu20.toml</code> configuration file, or connect a Sinumerik PCU20.</span>
             </div>
         </div>
     </div>

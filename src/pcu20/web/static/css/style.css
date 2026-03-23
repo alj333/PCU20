@@ -691,6 +691,210 @@ pre.code-block code {
     color: var(--text-secondary);
 }
 
+/* ========== Section Headers ========== */
+.section-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    margin-top: 0.5rem;
+}
+
+/* ========== Alarm Banner ========== */
+.alarm-banner {
+    background: var(--accent-red-dim);
+    border: 1px solid rgba(248, 113, 113, 0.3);
+    border-radius: var(--radius);
+    padding: 0.75rem 1.25rem;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    animation: alarm-pulse 2s ease-in-out infinite;
+}
+
+@keyframes alarm-pulse {
+    0%, 100% { border-color: rgba(248, 113, 113, 0.3); }
+    50% { border-color: rgba(248, 113, 113, 0.6); }
+}
+
+.alarm-banner-icon svg {
+    width: 24px;
+    height: 24px;
+    color: var(--accent-red);
+}
+
+.alarm-banner-content strong {
+    color: var(--accent-red);
+    margin-right: 0.5rem;
+}
+
+.alarm-banner-content span {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+/* ========== Protocol Badges ========== */
+.protocol-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.protocol-badge--pcu20  { background: var(--accent-purple-dim); color: var(--accent-purple); }
+.protocol-badge--focas2 { background: var(--accent-blue-dim); color: var(--accent-blue); }
+
+/* ========== Machine Grid & Cards ========== */
+.machine-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.machine-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    transition: border-color 0.2s;
+}
+
+.machine-card:hover {
+    border-color: #3a3e50;
+}
+
+.machine-card--alarm {
+    border-color: rgba(248, 113, 113, 0.4);
+    animation: alarm-pulse 2s ease-in-out infinite;
+}
+
+.machine-card-header {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.machine-card-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.machine-name {
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.machine-card-body {
+    padding: 0.75rem 1rem;
+}
+
+.machine-meta {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.75rem;
+}
+
+.machine-ip {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+}
+
+.machine-type {
+    color: var(--text-muted);
+}
+
+.machine-status-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.machine-mode, .machine-program {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+}
+
+.machine-program {
+    color: var(--accent-blue);
+    font-weight: 600;
+}
+
+/* ========== CNC Status Indicators ========== */
+.machine-cnc-status {
+    display: inline-flex;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+
+.machine-cnc-status--running  { background: var(--accent-green-dim); color: var(--accent-green); }
+.machine-cnc-status--idle     { background: var(--accent-blue-dim); color: var(--accent-blue); }
+.machine-cnc-status--alarm    { background: var(--accent-red-dim); color: var(--accent-red); }
+.machine-cnc-status--stopped  { background: var(--accent-amber-dim); color: var(--accent-amber); }
+.machine-cnc-status--unknown  { background: rgba(255,255,255,0.05); color: var(--text-muted); }
+
+/* ========== Axis Display ========== */
+.axis-display {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 4px;
+    margin-top: 0.5rem;
+}
+
+.axis-display--wide {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+}
+
+.axis-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 3px 8px;
+    background: var(--bg-secondary);
+    border-radius: 3px;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+}
+
+.axis-label {
+    color: var(--accent-amber);
+    font-weight: 700;
+    min-width: 20px;
+}
+
+.axis-value {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+/* ========== Machine Alarms ========== */
+.machine-alarms {
+    margin-top: 0.5rem;
+    border-top: 1px solid var(--border);
+    padding-top: 0.5rem;
+}
+
+.alarm-item {
+    font-size: 0.75rem;
+    color: var(--accent-red);
+    font-family: var(--font-mono);
+    padding: 2px 0;
+}
+
 /* ========== Utilities ========== */
 .text-muted { color: var(--text-muted); }
 
