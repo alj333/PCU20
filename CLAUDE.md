@@ -91,9 +91,56 @@ The protocol discovery module (`discovery.py`) logs all unknown commands with fu
 - PCU20 uses Linux internally (paths use `/`)
 - The original Delphi service logged to `nwmtrace.log`
 
-## Starlette/Jinja2 Note
+## Code Patterns & Gotchas
 
-Template responses use the newer Starlette API: `templates.TemplateResponse(request, "name.html", context)` — with `request` as the first arg, not inside the context dict. This is required on recent Starlette versions (Python 3.14 compatibility).
+- **Starlette TemplateResponse API**: Use `templates.TemplateResponse(request, "name.html", context)` — `request` is the first arg, not inside the context dict. Required on recent Starlette (Python 3.14 compatibility).
+- **Blocking I/O in async handlers**: All file operations in `handlers.py` use `asyncio.to_thread()` to avoid blocking the event loop. Follow this pattern for any new handlers that do filesystem or git operations.
+- **`_require_auth` takes `command_id`**: When adding new handlers, pass the command's ID so error responses have the correct command ID: `if err := _require_auth(session, CommandId.YOUR_CMD): return err`.
+- **Path traversal protection**: `shares.py` uses `Path.is_relative_to()` (not `startswith()`). Never bypass this — always resolve paths through `ShareManager.resolve()`.
+- **Password comparison**: `auth.py` uses `hmac.compare_digest()` to prevent timing side-channels. Don't switch to `==`.
+- **Versioning is wired into handlers**: `handle_write_file` calls `self.versions.on_file_written()` after each CNC write. Git/snapshot ops run in a thread executor via `asyncio.to_thread()`.
+- **Config validation**: `logging.level` and `versioning.strategy` use regex validators. Invalid values are rejected at config load, not silently ignored.
+- **WebSocket per page**: Only the dashboard page opens a persistent WebSocket (via `app.js`). The logs page uses htmx `ws-connect` for its own stream. Other pages just probe for server status. Don't add `hx-ext="ws" ws-connect="/ws"` to templates — it creates duplicate connections.
+- **Idle timeout**: TCP connections time out after 5 minutes of inactivity (`server.py`). The CNC must send data within this window.
+- **Session cleanup**: Use `self.sessions.pop(id, None)` not `del self.sessions[id]` — the latter races with `stop()` during shutdown.
+
+## Completed Audit Fixes (commit 19c279d)
+
+A deep code audit identified 30+ issues. The following 17 were fixed:
+
+**Critical:**
+1. Path traversal bypass — `startswith()` replaced with `Path.is_relative_to()`
+2. Blocking I/O in all async handlers — wrapped in `asyncio.to_thread()`
+3. Version manager was disconnected — now wired into `Handlers` and called on file writes
+4. `_require_auth` returned command_id=0 — now takes the actual command ID as parameter
+5. Session dict `KeyError` on shutdown — `del` replaced with `.pop(session.id, None)`
+6. No idle timeout — added 5-minute `asyncio.wait_for` on TCP reads
+
+**Security:**
+7. Timing side-channel — password comparison uses `hmac.compare_digest()`
+8. Login payload truncated to 256 chars to prevent memory abuse
+
+**Robustness:**
+9. Codec frame resync — skips 1 byte on invalid frame instead of discarding entire buffer
+10. Versioning root walk — bounded to known share roots (no walk to `/`)
+11. Versioning I/O — git/snapshot ops run in thread executor
+12. Config validation — `logging.level` and `versioning.strategy` validated with regex
+13. CLI — log level from config now actually applied; capture import works when installed
+
+**Web:**
+14. Duplicate WebSocket connections — removed htmx `ws-connect` from dashboard; `app.js` only opens WS on dashboard page
+15. Dashboard ports — sourced from config instead of hardcoded `6743`
+16. Machines `last_seen` — formatted as date instead of raw Unix timestamp
+17. API 404s — file/history routes return proper HTTP 404 instead of 200
+
+## Known Remaining Issues (from audit, not yet fixed)
+
+- **Test coverage is low** — only codec, session, and shares have tests (25 total). No tests for: auth, handlers, commands, server, versioning, machines, event_bus, config loading, web routes, WebSocket. Zero async tests despite async-first codebase.
+- **No web dashboard authentication** — all routes are public (acceptable for LAN-only use).
+- **`filesystem.py` is unused** — handlers implement file I/O inline. Could be removed or handlers refactored to use it.
+- **CDN scripts without SRI hashes** — htmx/Alpine.js loaded without integrity attributes.
+- **`app.js` connected count can drift** — increment/decrement logic desyncs if WebSocket events are missed. Should periodically fetch true count from API.
+- **`discovery.py` unused `TYPE_CHECKING` import** — `Session` imported but never referenced in annotations.
 
 ## What's Left to Build
 
@@ -108,10 +155,11 @@ Template responses use the newer Starlette API: `templates.TemplateResponse(requ
 - Share management CRUD via web UI (currently config-file only)
 - NC program diff viewer in version history
 - Machine naming/labeling in the web UI
+- Expand test coverage (auth, handlers, web routes, async integration tests)
 
 ### Phase 3 (production)
 - systemd unit file for Linux deployment
 - Windows service support (nssm)
 - Docker image
 - TLS support for the web dashboard
-- Authentication for the web dashboard
+- Authentication for the web dashboard (if needed beyond LAN)
