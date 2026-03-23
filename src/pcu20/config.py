@@ -4,15 +4,40 @@ from __future__ import annotations
 
 import tomllib
 from pathlib import Path
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
-class ServerConfig(BaseModel):
+# --- Protocol configs ---
+
+class PCU20Config(BaseModel):
+    """PCU20 TCP server configuration (inbound connections from CNC)."""
+    enabled: bool = True
     bind_address: str = "0.0.0.0"
     base_port: int = 6743
     num_ports: int = Field(default=15, ge=1, le=15)
 
+
+class FocasMachineConfig(BaseModel):
+    """Configuration for a single FOCAS2 CNC machine."""
+    id: str
+    name: str = ""
+    host: str
+    port: int = 8193
+    cnc_type: str = ""    # "fanuc-30i", "fanuc-16i", "fanuc-0i", "mori-mapps"
+    enabled: bool = True
+
+
+class FocasConfig(BaseModel):
+    """FOCAS2 client configuration (outbound connections to CNC)."""
+    enabled: bool = False
+    poll_interval: float = 2.0
+    reconnect_interval: float = 30.0
+    machines: list[FocasMachineConfig] = Field(default_factory=list)
+
+
+# --- Shared configs ---
 
 class WebConfig(BaseModel):
     enabled: bool = True
@@ -50,8 +75,11 @@ class VersioningConfig(BaseModel):
     max_snapshots: int = 50
 
 
+# --- App config ---
+
 class AppConfig(BaseModel):
-    server: ServerConfig = Field(default_factory=ServerConfig)
+    pcu20: PCU20Config = Field(default_factory=PCU20Config)
+    focas: FocasConfig = Field(default_factory=FocasConfig)
     web: WebConfig = Field(default_factory=WebConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
@@ -59,6 +87,14 @@ class AppConfig(BaseModel):
         ShareConfig(name="NCDATA", path="./ncdata")
     ])
     versioning: VersioningConfig = Field(default_factory=VersioningConfig)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _compat_server_key(cls, data: Any) -> Any:
+        """Backward compat: map old 'server' key to 'pcu20'."""
+        if isinstance(data, dict) and "server" in data and "pcu20" not in data:
+            data["pcu20"] = data.pop("server")
+        return data
 
 
 def load_config(path: Path | None = None) -> AppConfig:

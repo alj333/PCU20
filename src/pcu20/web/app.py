@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from pcu20.config import AppConfig
     from pcu20.event_bus import EventBus
     from pcu20.machines.registry import MachineRegistry
-    from pcu20.protocol.server import PCU20Server
+    from pcu20.protocol.registry import ConnectorRegistry
     from pcu20.storage.shares import ShareManager
     from pcu20.storage.versioning import VersionManager
 
@@ -23,7 +23,7 @@ STATIC_DIR = WEB_DIR / "static"
 
 
 def create_web_app(
-    tcp_server: PCU20Server,
+    connector_registry: ConnectorRegistry,
     event_bus: EventBus,
     share_manager: ShareManager,
     version_manager: VersionManager,
@@ -32,16 +32,16 @@ def create_web_app(
 ) -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(
-        title="PCU20 Network Manager",
-        description="Web dashboard for Sinumerik CNC file server",
-        version="0.1.0",
+        title="CNC Network Manager",
+        description="Web dashboard for multi-protocol CNC file server",
+        version="0.2.0",
     )
 
     # Mount static files
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
     # Store shared state for routes
-    app.state.tcp_server = tcp_server
+    app.state.connector_registry = connector_registry
     app.state.event_bus = event_bus
     app.state.share_manager = share_manager
     app.state.version_manager = version_manager

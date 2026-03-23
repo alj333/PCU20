@@ -10,17 +10,19 @@ router = APIRouter()
 @router.get("/")
 async def dashboard(request: Request):
     """Render the main dashboard page."""
-    tcp_server = request.app.state.tcp_server
+    connector_registry = request.app.state.connector_registry
     machine_registry = request.app.state.machine_registry
     share_manager = request.app.state.share_manager
+    config = request.app.state.config
     templates = request.app.state.templates
 
-    config = request.app.state.config
     return templates.TemplateResponse(request, "dashboard.html", {
-        "active_sessions": tcp_server.active_sessions,
+        "active_sessions": connector_registry.all_sessions(),
         "connected_count": machine_registry.connected_count,
         "total_machines": machine_registry.total_count,
+        "machines": machine_registry.list_all(),
         "shares": share_manager.list_shares(),
-        "base_port": config.server.base_port,
-        "num_ports": config.server.num_ports,
+        "protocols": connector_registry.protocols,
+        "base_port": config.pcu20.base_port,
+        "num_ports": config.pcu20.num_ports,
     })

@@ -1,16 +1,17 @@
-"""Application orchestrator — starts TCP server and web dashboard."""
+"""Application orchestrator — starts protocol connectors and web dashboard."""
 
 from __future__ import annotations
 
 import asyncio
 import signal
+from pathlib import Path
 
 import structlog
 
 from pcu20.config import AppConfig
 from pcu20.event_bus import EventBus
 from pcu20.machines.registry import MachineRegistry
-from pcu20.protocol.server import PCU20Server
+from pcu20.protocol.registry import ConnectorRegistry
 from pcu20.storage.shares import ShareManager
 from pcu20.storage.versioning import VersionManager
 
@@ -18,27 +19,49 @@ log = structlog.get_logger()
 
 
 async def run_app(config: AppConfig) -> None:
-    """Main application entry point — runs both TCP and web servers."""
+    """Main application entry point — runs protocol connectors and web server."""
     event_bus = EventBus()
     share_manager = ShareManager(config.shares)
     version_manager = VersionManager(config.versioning)
     machine_registry = MachineRegistry()
 
     # Initialize versioning for each share
-    from pathlib import Path
     for share in config.shares:
         version_manager.init_share(Path(share.path))
 
-    # Create the TCP server
-    tcp_server = PCU20Server(
-        config=config,
-        event_bus=event_bus,
-        share_manager=share_manager,
-        version_manager=version_manager,
-        machine_registry=machine_registry,
-    )
+    # Build connector registry
+    connector_registry = ConnectorRegistry()
 
-    await tcp_server.start()
+    # PCU20 connector (inbound TCP server)
+    if config.pcu20.enabled:
+        from pcu20.protocol.server import PCU20Server
+        pcu20_server = PCU20Server(
+            config=config,
+            event_bus=event_bus,
+            share_manager=share_manager,
+            version_manager=version_manager,
+            machine_registry=machine_registry,
+        )
+        connector_registry.register(pcu20_server)
+
+    # FOCAS2 connector (outbound client) — enabled when configured
+    if config.focas.enabled and config.focas.machines:
+        try:
+            from pcu20.focas.connector import FocasConnector
+            focas_connector = FocasConnector(
+                config=config.focas,
+                event_bus=event_bus,
+                machine_registry=machine_registry,
+                share_manager=share_manager,
+                version_manager=version_manager,
+            )
+            connector_registry.register(focas_connector)
+        except ImportError:
+            log.warning("focas.not_available",
+                        msg="FOCAS2 module dependencies not installed. "
+                            "Install with: pip install pcu20[focas]")
+
+    await connector_registry.start_all()
 
     # Start web dashboard if enabled
     web_task = None
@@ -47,7 +70,7 @@ async def run_app(config: AppConfig) -> None:
         import uvicorn
 
         fastapi_app = create_web_app(
-            tcp_server=tcp_server,
+            connector_registry=connector_registry,
             event_bus=event_bus,
             share_manager=share_manager,
             version_manager=version_manager,
@@ -79,12 +102,11 @@ async def run_app(config: AppConfig) -> None:
         try:
             loop.add_signal_handler(sig, _signal_handler)
         except NotImplementedError:
-            # Windows doesn't support add_signal_handler
             pass
 
     log.info(
         "app.ready",
-        tcp_ports=f"{config.server.base_port}-{config.server.base_port + config.server.num_ports - 1}",
+        protocols=connector_registry.protocols,
         web_port=config.web.port if config.web.enabled else "disabled",
         shares=len(config.shares),
     )
@@ -97,7 +119,7 @@ async def run_app(config: AppConfig) -> None:
 
     # Cleanup
     log.info("app.shutting_down")
-    await tcp_server.stop()
+    await connector_registry.stop_all()
     if web_task:
         web_task.cancel()
         try:

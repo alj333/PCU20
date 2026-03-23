@@ -11,20 +11,25 @@ from pcu20.config import AppConfig
 from pcu20.event_bus import EventBus
 from pcu20.machines.registry import MachineRegistry
 from pcu20.protocol.auth import Authenticator
+from pcu20.protocol.base import BaseProtocolConnector, ConnectionDirection, ProtocolType
 from pcu20.protocol.codec import FrameCodec
 from pcu20.protocol.commands import CommandRegistry
 from pcu20.protocol.discovery import ProtocolDiscovery
 from pcu20.protocol.handlers import Handlers
 from pcu20.protocol.session import Session
 from pcu20.protocol.types import CommandId
+from pcu20.storage.filesystem import list_directory, safe_read, safe_write
 from pcu20.storage.shares import ShareManager
 from pcu20.storage.versioning import VersionManager
 
 log = structlog.get_logger()
 
 
-class PCU20Server:
+class PCU20Server(BaseProtocolConnector):
     """Multi-port asyncio TCP server implementing the PCU20 file protocol."""
+
+    protocol_type = ProtocolType.PCU20
+    direction = ConnectionDirection.INBOUND
 
     def __init__(
         self,
@@ -83,9 +88,9 @@ class PCU20Server:
         """Start listening on all configured ports."""
         self._discovery.start()
 
-        base = self.config.server.base_port
-        num = self.config.server.num_ports
-        bind = self.config.server.bind_address
+        base = self.config.pcu20.base_port
+        num = self.config.pcu20.num_ports
+        bind = self.config.pcu20.bind_address
 
         for port in range(base, base + num):
             server = await asyncio.start_server(
@@ -199,6 +204,31 @@ class PCU20Server:
             )
             self.event_bus.emit("machine.disconnected", session.summary())
 
+    def get_sessions(self) -> list[dict[str, Any]]:
+        return [s.summary() for s in self.sessions.values()]
+
     @property
     def active_sessions(self) -> list[dict[str, Any]]:
-        return [s.summary() for s in self.sessions.values()]
+        """Backward-compat alias."""
+        return self.get_sessions()
+
+    async def list_files(self, machine_id: str, path: str = "") -> list[dict]:
+        """List files in a PCU20 share directory."""
+        local_path = self.share_manager.resolve(f"/{path}" if path else "/", "")
+        if local_path and local_path.is_dir():
+            return list_directory(local_path)
+        return []
+
+    async def read_file(self, machine_id: str, path: str) -> bytes | None:
+        """Read a file from a PCU20 share."""
+        local_path = self.share_manager.resolve(f"/{path}", "")
+        if local_path:
+            return safe_read(local_path)
+        return None
+
+    async def write_file(self, machine_id: str, path: str, data: bytes) -> bool:
+        """Write a file to a PCU20 share."""
+        local_path = self.share_manager.resolve(f"/{path}", "")
+        if local_path:
+            return safe_write(local_path, data)
+        return False
