@@ -64,7 +64,7 @@ class ShareManager:
         # Security: prevent path traversal
         try:
             resolved = local_path.resolve()
-            if not str(resolved).startswith(str(local_base)):
+            if not resolved.is_relative_to(local_base):
                 log.warning("shares.path_traversal", path=virtual_path, resolved=str(resolved))
                 return None
         except (OSError, ValueError):

@@ -3,15 +3,8 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel
 
 router = APIRouter()
-
-
-class ShareForm(BaseModel):
-    name: str
-    path: str
-    read_only: bool = False
 
 
 @router.get("/")

@@ -49,7 +49,7 @@ class PCU20Server:
             enabled=config.logging.protocol_trace,
         )
         self._authenticator = Authenticator(config.auth)
-        self._handlers = Handlers(self._authenticator, share_manager)
+        self._handlers = Handlers(self._authenticator, share_manager, version_manager)
         self._commands = CommandRegistry(self._discovery)
 
         # Register command handlers
@@ -139,9 +139,14 @@ class PCU20Server:
         self.event_bus.emit("machine.connected", session.summary())
 
         codec = FrameCodec()
+        idle_timeout = 300  # 5 minutes
         try:
             while True:
-                data = await reader.read(65536)
+                try:
+                    data = await asyncio.wait_for(reader.read(65536), timeout=idle_timeout)
+                except asyncio.TimeoutError:
+                    log.info("connection.idle_timeout", session=session.id[:8])
+                    break
                 if not data:
                     break
 
@@ -170,7 +175,7 @@ class PCU20Server:
         finally:
             session.close_all_handles()
             session.disconnect()
-            del self.sessions[session.id]
+            self.sessions.pop(session.id, None)
 
             self.machine_registry.on_disconnect(
                 session.peer_ip,

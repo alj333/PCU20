@@ -15,9 +15,12 @@ async def dashboard(request: Request):
     share_manager = request.app.state.share_manager
     templates = request.app.state.templates
 
+    config = request.app.state.config
     return templates.TemplateResponse(request, "dashboard.html", {
         "active_sessions": tcp_server.active_sessions,
         "connected_count": machine_registry.connected_count,
         "total_machines": machine_registry.total_count,
         "shares": share_manager.list_shares(),
+        "base_port": config.server.base_port,
+        "num_ports": config.server.num_ports,
     })

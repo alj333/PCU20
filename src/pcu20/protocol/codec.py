@@ -51,11 +51,11 @@ class FrameCodec:
         # Read length prefix
         length = int.from_bytes(self._buffer[:FRAME_HEADER_SIZE], BYTE_ORDER)
 
-        if length > MAX_FRAME_SIZE:
-            log.error("codec.frame_too_large", length=length, max=MAX_FRAME_SIZE)
-            # Discard the buffer — protocol desync
-            self._buffer.clear()
-            return None
+        if length > MAX_FRAME_SIZE or length == 0:
+            log.error("codec.invalid_frame_length", length=length, max=MAX_FRAME_SIZE)
+            # Skip this 4-byte header and try to resync from the next byte
+            del self._buffer[:1]
+            return self._try_extract_frame() if len(self._buffer) >= FRAME_HEADER_SIZE else None
 
         total_size = FRAME_HEADER_SIZE + length
         if len(self._buffer) < total_size:

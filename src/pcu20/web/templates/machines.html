@@ -5,7 +5,7 @@
 {% block page_title %}CNC Machines{% endblock %}
 
 {% block content %}
-<div hx-get="/machines/api/list" hx-trigger="every 5s" hx-swap="none">
+<div>
     {% if machines %}
     <div class="panel">
         <div class="panel-header">
@@ -38,7 +38,9 @@
                         <td>{{ m.name }}</td>
                         <td>{{ m.total_connections }}</td>
                         <td>{{ m.total_files_transferred }}</td>
-                        <td>{{ m.last_seen }}</td>
+                        <td class="text-muted" data-timestamp="{{ m.last_seen }}">
+                            <script>document.currentScript.parentElement.textContent = new Date({{ m.last_seen }} * 1000).toLocaleString()</script>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>

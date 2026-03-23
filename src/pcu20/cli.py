@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 
 import click
@@ -11,14 +12,24 @@ import structlog
 from pcu20 import __version__
 from pcu20.config import load_config
 
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.add_log_level,
-        structlog.dev.ConsoleRenderer(),
-    ],
-)
 
+def _setup_logging(level: str = "INFO") -> None:
+    """Configure structlog with the given level."""
+    logging.basicConfig(level=getattr(logging, level, logging.INFO), format="%(message)s")
+    structlog.configure(
+        processors=[
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.add_log_level,
+            structlog.dev.ConsoleRenderer(),
+        ],
+        wrapper_class=structlog.make_filtering_bound_logger(
+            getattr(logging, level, logging.INFO)
+        ),
+    )
+
+
+# Default logging until config is loaded
+_setup_logging()
 log = structlog.get_logger()
 
 
@@ -42,6 +53,7 @@ def serve(ctx: click.Context) -> None:
     """Start the PCU20 server (TCP file server + web dashboard)."""
     config_path = ctx.obj["config_path"]
     cfg = load_config(config_path)
+    _setup_logging(cfg.logging.level)
     log.info("config.loaded", path=str(config_path), shares=len(cfg.shares))
 
     from pcu20.app import run_app
@@ -52,19 +64,15 @@ def serve(ctx: click.Context) -> None:
 @click.pass_context
 def init_config(ctx: click.Context) -> None:
     """Generate a default configuration file."""
-    import shutil
-    src = Path(__file__).parent.parent.parent / "pcu20.toml.example"
     dest = ctx.obj["config_path"]
     if dest.exists():
         click.confirm(f"{dest} already exists. Overwrite?", abort=True)
-    if src.exists():
-        shutil.copy(src, dest)
-    else:
-        import tomli_w
-        from pcu20.config import AppConfig
-        cfg = AppConfig()
-        with open(dest, "wb") as f:
-            tomli_w.dump(cfg.model_dump(), f)
+
+    import tomli_w
+    from pcu20.config import AppConfig
+    cfg = AppConfig()
+    with open(dest, "wb") as f:
+        tomli_w.dump(cfg.model_dump(), f)
     log.info("config.created", path=str(dest))
 
 
@@ -75,5 +83,15 @@ def init_config(ctx: click.Context) -> None:
 @click.option("--output", "-o", default="capture.bin", help="Output capture file")
 def capture(target_host: str, target_port: int, listen_port: int, output: str) -> None:
     """Run MITM capture proxy for protocol reverse-engineering."""
-    from tools.capture_proxy import run_capture_proxy
-    asyncio.run(run_capture_proxy(target_host, target_port, listen_port, output))
+    # Import relative to package — capture_proxy is bundled as a submodule
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "capture_proxy",
+        Path(__file__).parent.parent.parent / "tools" / "capture_proxy.py",
+    )
+    if spec is None or spec.loader is None:
+        click.echo("Error: capture_proxy.py not found. Run from the project directory.", err=True)
+        raise SystemExit(1)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    asyncio.run(mod.run_capture_proxy(target_host, target_port, listen_port, output))

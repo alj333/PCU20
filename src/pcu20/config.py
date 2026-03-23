@@ -21,7 +21,7 @@ class WebConfig(BaseModel):
 
 
 class LoggingConfig(BaseModel):
-    level: str = "INFO"
+    level: str = Field(default="INFO", pattern="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$")
     protocol_trace: bool = True
     trace_file: str = "pcu20_trace.log"
     max_trace_size_mb: int = 100
@@ -46,7 +46,7 @@ class ShareConfig(BaseModel):
 
 class VersioningConfig(BaseModel):
     enabled: bool = True
-    strategy: str = "git"  # "git" or "snapshots"
+    strategy: str = Field(default="git", pattern="^(git|snapshots)$")
     max_snapshots: int = 50
 
 

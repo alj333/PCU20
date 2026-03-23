@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
+import shutil
 import struct
 from typing import TYPE_CHECKING
 
@@ -15,23 +17,30 @@ if TYPE_CHECKING:
     from pcu20.protocol.auth import Authenticator
     from pcu20.protocol.session import Session
     from pcu20.storage.shares import ShareManager
+    from pcu20.storage.versioning import VersionManager
 
 log = structlog.get_logger()
 
 
-def _require_auth(session: Session) -> bytes | None:
+def _require_auth(session: Session, command_id: int) -> bytes | None:
     """Return an error response if the session is not authenticated, else None."""
     if not session.is_authenticated:
-        return encode_response(0, ResponseCode.AUTH_REQUIRED)
+        return encode_response(command_id, ResponseCode.AUTH_REQUIRED)
     return None
 
 
 class Handlers:
     """All PCU20 protocol command handlers."""
 
-    def __init__(self, authenticator: Authenticator, share_manager: ShareManager) -> None:
+    def __init__(
+        self,
+        authenticator: Authenticator,
+        share_manager: ShareManager,
+        version_manager: VersionManager | None = None,
+    ) -> None:
         self.auth = authenticator
         self.shares = share_manager
+        self.versions = version_manager
 
     # --- Authentication ---
 
@@ -42,8 +51,8 @@ class Handlers:
             null-terminated username + null-terminated password
         """
         parts = payload.split(b"\x00")
-        username = parts[0].decode(DEFAULT_ENCODING) if len(parts) > 0 else ""
-        password = parts[1].decode(DEFAULT_ENCODING) if len(parts) > 1 else ""
+        username = parts[0].decode(DEFAULT_ENCODING)[:256] if len(parts) > 0 else ""
+        password = parts[1].decode(DEFAULT_ENCODING)[:256] if len(parts) > 1 else ""
 
         if self.auth.validate(username, password):
             session.authenticate(username)
@@ -61,7 +70,7 @@ class Handlers:
 
     async def handle_read_file(self, session: Session, payload: bytes) -> bytes:
         """Handle ReadFileFromServer — send file content to CNC."""
-        if err := _require_auth(session):
+        if err := _require_auth(session, CommandId.READ_FILE):
             return err
 
         filepath = payload.rstrip(b"\x00").decode(DEFAULT_ENCODING)
@@ -71,11 +80,9 @@ class Handlers:
             return encode_response(CommandId.READ_FILE, ResponseCode.NOT_FOUND)
 
         try:
-            data = local_path.read_bytes()
-            session.bytes_sent += len(data)
+            data = await asyncio.to_thread(local_path.read_bytes)
             session.files_transferred += 1
             log.info("handler.read_file", session=session.id[:8], path=filepath, size=len(data))
-            # Response: OK status + file size (uint32 LE) + file data
             size_bytes = struct.pack("<I", len(data))
             return encode_response(CommandId.READ_FILE, ResponseCode.OK, size_bytes + data)
         except OSError as e:
@@ -84,7 +91,7 @@ class Handlers:
 
     async def handle_write_file(self, session: Session, payload: bytes) -> bytes:
         """Handle WriteFileToServer — receive file content from CNC."""
-        if err := _require_auth(session):
+        if err := _require_auth(session, CommandId.WRITE_FILE):
             return err
 
         # Expected: null-terminated path + file data
@@ -104,11 +111,21 @@ class Handlers:
             return encode_response(CommandId.WRITE_FILE, ResponseCode.PERMISSION_DENIED)
 
         try:
-            local_path.parent.mkdir(parents=True, exist_ok=True)
-            local_path.write_bytes(file_data)
-            session.bytes_received += len(file_data)
+            def _write():
+                local_path.parent.mkdir(parents=True, exist_ok=True)
+                local_path.write_bytes(file_data)
+
+            await asyncio.to_thread(_write)
             session.files_transferred += 1
             log.info("handler.write_file", session=session.id[:8], path=filepath, size=len(file_data))
+
+            # Trigger versioning
+            if self.versions:
+                await self.versions.on_file_written(local_path, {
+                    "machine_ip": session.peer_ip,
+                    "username": session.username or "unknown",
+                })
+
             return encode_response(CommandId.WRITE_FILE, ResponseCode.OK)
         except OSError as e:
             log.error("handler.write_file_error", path=filepath, error=str(e))
@@ -116,7 +133,7 @@ class Handlers:
 
     async def handle_stat_file(self, session: Session, payload: bytes) -> bytes:
         """Handle StatFile — return file metadata."""
-        if err := _require_auth(session):
+        if err := _require_auth(session, CommandId.STAT_FILE):
             return err
 
         filepath = payload.rstrip(b"\x00").decode(DEFAULT_ENCODING)
@@ -126,12 +143,12 @@ class Handlers:
             return encode_response(CommandId.STAT_FILE, ResponseCode.NOT_FOUND)
 
         try:
-            stat = local_path.stat()
+            stat = await asyncio.to_thread(local_path.stat)
             # Pack: size (uint32), mtime (uint32), is_dir (uint8)
             stat_data = struct.pack(
                 "<IIB",
-                int(stat.st_size),
-                int(stat.st_mtime),
+                min(int(stat.st_size), 0xFFFFFFFF),
+                int(stat.st_mtime) & 0xFFFFFFFF,
                 1 if local_path.is_dir() else 0,
             )
             return encode_response(CommandId.STAT_FILE, ResponseCode.OK, stat_data)
@@ -143,7 +160,7 @@ class Handlers:
 
     async def handle_read_dir(self, session: Session, payload: bytes) -> bytes:
         """Handle ReadDirFromServer — list directory contents."""
-        if err := _require_auth(session):
+        if err := _require_auth(session, CommandId.READ_DIR):
             return err
 
         dirpath = payload.rstrip(b"\x00").decode(DEFAULT_ENCODING)
@@ -153,16 +170,21 @@ class Handlers:
             return encode_response(CommandId.READ_DIR, ResponseCode.NOT_FOUND)
 
         try:
-            entries = []
-            for entry in sorted(local_path.iterdir()):
-                stat = entry.stat()
-                # Entry format: name\0size\0is_dir\0
-                name = entry.name.encode(DEFAULT_ENCODING) + b"\x00"
-                size = struct.pack("<I", int(stat.st_size))
-                is_dir = struct.pack("B", 1 if entry.is_dir() else 0)
-                entries.append(name + size + is_dir)
+            def _list_dir():
+                entries = []
+                for entry in sorted(local_path.iterdir()):
+                    try:
+                        stat = entry.stat()
+                    except OSError:
+                        continue
+                    name = entry.name.encode(DEFAULT_ENCODING) + b"\x00"
+                    size = struct.pack("<I", min(int(stat.st_size), 0xFFFFFFFF))
+                    is_dir = struct.pack("B", 1 if entry.is_dir() else 0)
+                    entries.append(name + size + is_dir)
+                return entries
 
-            count = struct.pack("<H", len(entries))
+            entries = await asyncio.to_thread(_list_dir)
+            count = struct.pack("<I", len(entries))
             entry_data = b"".join(entries)
             return encode_response(CommandId.READ_DIR, ResponseCode.OK, count + entry_data)
         except OSError as e:
@@ -171,7 +193,7 @@ class Handlers:
 
     async def handle_mkdir(self, session: Session, payload: bytes) -> bytes:
         """Handle MkDir — create a directory."""
-        if err := _require_auth(session):
+        if err := _require_auth(session, CommandId.MKDIR):
             return err
 
         dirpath = payload.rstrip(b"\x00").decode(DEFAULT_ENCODING)
@@ -185,7 +207,7 @@ class Handlers:
             return encode_response(CommandId.MKDIR, ResponseCode.PERMISSION_DENIED)
 
         try:
-            local_path.mkdir(parents=True, exist_ok=True)
+            await asyncio.to_thread(local_path.mkdir, parents=True, exist_ok=True)
             log.info("handler.mkdir", session=session.id[:8], path=dirpath)
             return encode_response(CommandId.MKDIR, ResponseCode.OK)
         except OSError as e:
@@ -194,7 +216,7 @@ class Handlers:
 
     async def handle_rmdir(self, session: Session, payload: bytes) -> bytes:
         """Handle RmDir — remove a directory."""
-        if err := _require_auth(session):
+        if err := _require_auth(session, CommandId.RMDIR):
             return err
 
         dirpath = payload.rstrip(b"\x00").decode(DEFAULT_ENCODING)
@@ -208,7 +230,7 @@ class Handlers:
             return encode_response(CommandId.RMDIR, ResponseCode.PERMISSION_DENIED)
 
         try:
-            local_path.rmdir()
+            await asyncio.to_thread(local_path.rmdir)
             log.info("handler.rmdir", session=session.id[:8], path=dirpath)
             return encode_response(CommandId.RMDIR, ResponseCode.OK)
         except OSError as e:
@@ -219,20 +241,15 @@ class Handlers:
 
     async def handle_get_free_mem(self, session: Session, payload: bytes) -> bytes:
         """Handle GetFreeMem — report available disk space."""
-        if err := _require_auth(session):
+        if err := _require_auth(session, CommandId.GET_FREE_MEM):
             return err
 
-        # Report free space of the first share's filesystem
         try:
             first_share_path = self.shares.get_first_local_path()
             if first_share_path:
-                usage = os.statvfs(str(first_share_path)) if hasattr(os, "statvfs") else None
-                if usage:
-                    free_bytes = usage.f_bavail * usage.f_frsize
-                else:
-                    # Windows fallback
-                    import shutil
-                    total, used, free_bytes = shutil.disk_usage(str(first_share_path))
+                total, used, free_bytes = await asyncio.to_thread(
+                    shutil.disk_usage, str(first_share_path)
+                )
             else:
                 free_bytes = 0
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hmac
+
 import structlog
 
 from pcu20.config import AuthConfig
@@ -27,7 +29,7 @@ class Authenticator:
             log.warning("auth.unknown_user", username=username)
             return False
 
-        if expected != password:
+        if not hmac.compare_digest(expected.encode(), password.encode()):
             log.warning("auth.bad_password", username=username)
             return False
 

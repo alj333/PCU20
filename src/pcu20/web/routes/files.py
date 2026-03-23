@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 
 from pcu20.storage.filesystem import list_directory, get_disk_usage
 
@@ -31,7 +32,7 @@ async def api_browse(request: Request, share: str, path: str = ""):
     local_path = share_manager.resolve(virtual_path, "")
 
     if local_path is None or not local_path.is_dir():
-        return {"error": "Directory not found", "entries": []}
+        return JSONResponse({"error": "Directory not found", "entries": []}, status_code=404)
 
     entries = list_directory(local_path)
     usage = get_disk_usage(local_path)
@@ -54,7 +55,7 @@ async def api_file_history(request: Request, share: str, path: str):
     local_path = share_manager.resolve(virtual_path, "")
 
     if local_path is None or not local_path.is_file():
-        return {"error": "File not found", "history": []}
+        return JSONResponse({"error": "File not found", "history": []}, status_code=404)
 
     history = version_manager.get_history(local_path)
     return {"file": path, "history": history}

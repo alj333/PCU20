@@ -6,6 +6,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const activityFeed = document.getElementById('activity-feed');
     const connectedCount = document.getElementById('connected-count');
 
+    // Only open our own WebSocket on the dashboard page (where activity-feed exists).
+    // Other pages (logs) use htmx ws-connect instead.
+    const isDashboard = !!activityFeed;
+
     let ws = null;
     let reconnectTimer = null;
 
@@ -46,9 +50,8 @@ document.addEventListener('DOMContentLoaded', () => {
             connectedCount.textContent = Math.max(0, parseInt(connectedCount.textContent || '1') - 1);
         }
 
-        // Activity feed
+        // Activity feed (dashboard only)
         if (activityFeed) {
-            // Remove empty state
             const empty = activityFeed.querySelector('.empty-state');
             if (empty) empty.remove();
 
@@ -76,12 +79,32 @@ document.addEventListener('DOMContentLoaded', () => {
             item.appendChild(detail);
             activityFeed.prepend(item);
 
-            // Limit items
             while (activityFeed.children.length > 100) {
                 activityFeed.lastChild.remove();
             }
         }
     }
 
-    connectWebSocket();
+    // On dashboard: open our own WS for the activity feed.
+    // On other pages: just ping /ws to check server status (no event subscription).
+    if (isDashboard) {
+        connectWebSocket();
+    } else {
+        // Lightweight status check — just test if WS connects, then close
+        function checkStatus() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const probe = new WebSocket(`${protocol}//${window.location.host}/ws`);
+            probe.onopen = () => {
+                if (statusEl) statusEl.textContent = 'Server Online';
+                if (dotEl) dotEl.classList.remove('disconnected');
+                probe.close();
+            };
+            probe.onerror = () => {
+                if (statusEl) statusEl.textContent = 'Disconnected';
+                if (dotEl) dotEl.classList.add('disconnected');
+            };
+        }
+        checkStatus();
+        setInterval(checkStatus, 30000);
+    }
 });
