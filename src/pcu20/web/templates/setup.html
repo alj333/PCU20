@@ -1,0 +1,470 @@
+{% extends "base.html" %}
+{% set active_page = "setup" %}
+
+{% block title %}Setup - CNC Network Manager{% endblock %}
+{% block page_title %}Machine Setup{% endblock %}
+
+{% block content %}
+<div x-data="setupTools()">
+
+    <!-- Server Info -->
+    <div class="panel">
+        <div class="panel-header">
+            <h2>This Server</h2>
+            <span class="badge badge--green">Running</span>
+        </div>
+        <div class="panel-body">
+            <div class="info-grid">
+                <div class="info-item">
+                    <span class="info-label">Server IP</span>
+                    <span class="info-value">
+                        {% for ip in server_ips %}
+                            <code>{{ ip }}</code>{% if not loop.last %}, {% endif %}
+                        {% endfor %}
+                    </span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">PCU20 Ports</span>
+                    <span class="info-value"><code>{{ pcu20_config.base_port }}</code> &ndash; <code>{{ pcu20_config.base_port + pcu20_config.num_ports - 1 }}</code> ({{ "enabled" if pcu20_config.enabled else "disabled" }})</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">FOCAS2</span>
+                    <span class="info-value">{{ "Enabled" if focas_config.enabled else "Disabled" }} ({{ focas_config.machines | length }} machines configured)</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Web Dashboard</span>
+                    <span class="info-value"><code>http://{{ server_ips[0] }}:8020</code></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Network Tools -->
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Network Tools</h2>
+        </div>
+        <div class="panel-body">
+            <div class="tools-grid">
+                <!-- Scanner -->
+                <div class="tool-section">
+                    <h3>Network Scanner</h3>
+                    <p class="text-muted">Scan your LAN for CNC machines on known ports (6743 for PCU20, 8193 for FOCAS2).</p>
+                    <div class="tool-form">
+                        <div class="tool-row">
+                            <label class="toolbar-label">Subnet (e.g. 192.168.1)</label>
+                            <input class="input" type="text" x-model="scanSubnet" placeholder="192.168.1" style="width:180px">
+                            <button class="btn" @click="runScan()" :disabled="scanning">
+                                <template x-if="scanning">
+                                    <span>Scanning...</span>
+                                </template>
+                                <template x-if="!scanning">
+                                    <span>Scan Network</span>
+                                </template>
+                            </button>
+                        </div>
+                    </div>
+
+                    <template x-if="scanResults.length > 0">
+                        <div style="margin-top:1rem">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>IP Address</th>
+                                        <th>Port</th>
+                                        <th>Protocol</th>
+                                        <th>Hostname</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="r in scanResults" :key="r.ip + ':' + r.port">
+                                        <tr>
+                                            <td><code x-text="r.ip"></code></td>
+                                            <td x-text="r.port"></td>
+                                            <td><span class="protocol-badge" :class="'protocol-badge--' + r.protocol.toLowerCase()" x-text="r.protocol"></span></td>
+                                            <td class="text-muted" x-text="r.hostname || '—'"></td>
+                                            <td><button class="btn btn--sm" @click="testHost = r.ip; testPort = r.port; runTest()">Test</button></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </template>
+                    <template x-if="scanDone && scanResults.length === 0">
+                        <p class="text-muted" style="margin-top:1rem">No CNC machines found on this subnet.</p>
+                    </template>
+                </div>
+
+                <!-- Connection Test -->
+                <div class="tool-section">
+                    <h3>Connection Test</h3>
+                    <p class="text-muted">Test TCP connectivity to a specific CNC machine.</p>
+                    <div class="tool-form">
+                        <div class="tool-row">
+                            <label class="toolbar-label">Host</label>
+                            <input class="input" type="text" x-model="testHost" placeholder="192.168.1.50" style="width:160px">
+                            <label class="toolbar-label">Port</label>
+                            <input class="input" type="number" x-model="testPort" placeholder="8193" style="width:80px">
+                            <button class="btn" @click="runTest()" :disabled="testing">Test</button>
+                        </div>
+                    </div>
+
+                    <template x-if="testResult">
+                        <div class="test-result" :class="testResult.reachable ? 'test-result--ok' : 'test-result--fail'" style="margin-top:1rem">
+                            <template x-if="testResult.reachable">
+                                <div>
+                                    <strong style="color:var(--accent-green)">Connected</strong>
+                                    to <code x-text="testResult.host + ':' + testResult.port"></code>
+                                    in <span x-text="testResult.latency_ms"></span>ms
+                                    (<span x-text="testResult.protocol"></span>)
+                                </div>
+                            </template>
+                            <template x-if="!testResult.reachable">
+                                <div>
+                                    <strong style="color:var(--accent-red)">Failed</strong>
+                                    &mdash; <span x-text="testResult.error"></span>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Setup Guides -->
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Machine Setup Guides</h2>
+        </div>
+        <div class="panel-body" style="padding:0">
+            <!-- Tab bar -->
+            <div class="guide-tabs">
+                <button class="guide-tab" :class="{'guide-tab--active': activeGuide === 'pcu20'}" @click="activeGuide = 'pcu20'">
+                    <span class="protocol-badge protocol-badge--pcu20">PCU20</span> Sinumerik 810D
+                </button>
+                <button class="guide-tab" :class="{'guide-tab--active': activeGuide === 'fanuc'}" @click="activeGuide = 'fanuc'">
+                    <span class="protocol-badge protocol-badge--focas2">FOCAS2</span> Fanuc
+                </button>
+                <button class="guide-tab" :class="{'guide-tab--active': activeGuide === 'mori'}" @click="activeGuide = 'mori'">
+                    <span class="protocol-badge protocol-badge--focas2">FOCAS2</span> Mori MAPPS
+                </button>
+            </div>
+
+            <!-- PCU20 Guide -->
+            <div class="guide-content" x-show="activeGuide === 'pcu20'">
+                <h3>Sinumerik PCU20 (810D / 840D) Setup</h3>
+                <p class="text-muted">The PCU20 connects <strong>to this server</strong> as a client. You need to configure the CNC's network settings to point to this machine.</p>
+
+                <div class="guide-steps">
+                    <div class="guide-step">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h4>Configure CNC Network Settings</h4>
+                            <p>On the Sinumerik HMI panel:</p>
+                            <ol>
+                                <li>Press <kbd>Menu Select</kbd> until you see the <kbd>IBN</kbd> (Commissioning) softkey</li>
+                                <li>Press <kbd>IBN</kbd>, then navigate to <kbd>CNC ISO</kbd></li>
+                                <li>Select <kbd>Network connections</kbd></li>
+                                <li>Set the network configuration:
+                                    <table class="data-table" style="margin:0.5rem 0">
+                                        <tr><td style="width:140px"><strong>IP Address</strong></td><td>Assign a static IP on your LAN (e.g. <code>192.168.1.100</code>)</td></tr>
+                                        <tr><td><strong>Subnet Mask</strong></td><td><code>255.255.255.0</code></td></tr>
+                                        <tr><td><strong>Gateway</strong></td><td>Your network gateway (e.g. <code>192.168.1.1</code>)</td></tr>
+                                    </table>
+                                </li>
+                            </ol>
+                        </div>
+                    </div>
+
+                    <div class="guide-step">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h4>Configure Logical Drive</h4>
+                            <p>Map a network drive to this server:</p>
+                            <ol>
+                                <li>Navigate to <kbd>Logical drives</kbd> in the network configuration</li>
+                                <li>Add a new drive mapping:
+                                    <table class="data-table" style="margin:0.5rem 0">
+                                        <tr><td style="width:140px"><strong>Drive letter</strong></td><td>Choose an available letter (e.g. <code>E:</code>)</td></tr>
+                                        <tr><td><strong>Server IP</strong></td><td><code>{% for ip in server_ips %}{{ ip }}{% if not loop.last %} or {% endif %}{% endfor %}</code></td></tr>
+                                        <tr><td><strong>Port</strong></td><td><code>{{ pcu20_config.base_port }}</code></td></tr>
+                                        <tr><td><strong>Username</strong></td><td><code>PCU20_USER</code></td></tr>
+                                        <tr><td><strong>Password</strong></td><td><code>pcu20</code> (default)</td></tr>
+                                    </table>
+                                </li>
+                            </ol>
+                        </div>
+                    </div>
+
+                    <div class="guide-step">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <h4>Configure Softkeys (Optional)</h4>
+                            <p>Set up function key labels on the HMI to quickly access the network drive:</p>
+                            <ol>
+                                <li>Navigate to <kbd>Softkey labels</kbd></li>
+                                <li>Assign <code>Row 1</code> / <code>Row 2</code> labels for the mapped drive</li>
+                            </ol>
+                        </div>
+                    </div>
+
+                    <div class="guide-step">
+                        <div class="step-number">4</div>
+                        <div class="step-content">
+                            <h4>Restart HMI &amp; Verify</h4>
+                            <p>Restart the HMI. The PCU20 should connect to this server automatically. Check the <a href="/">Dashboard</a> for a new connection.</p>
+                            <p class="text-muted">If it doesn't connect, verify the network cable, IP settings, and that this server is running.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Fanuc Guide -->
+            <div class="guide-content" x-show="activeGuide === 'fanuc'">
+                <h3>Fanuc CNC Setup (30i / 16i / 0i-MD)</h3>
+                <p class="text-muted">This server connects <strong>to the Fanuc CNC</strong> via FOCAS2. You need to configure the CNC's Ethernet port and add it to your <code>pcu20.toml</code>.</p>
+
+                <div class="guide-steps">
+                    <div class="guide-step">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h4>Configure CNC Ethernet</h4>
+                            <p>On the Fanuc CNC operator panel:</p>
+                            <ol>
+                                <li>Press <kbd>SYSTEM</kbd>, then select the <kbd>ETHPRM</kbd> (Ethernet Parameters) screen</li>
+                                <li>Navigate to <kbd>COMMON</kbd> tab and set:
+                                    <table class="data-table" style="margin:0.5rem 0">
+                                        <tr><td style="width:140px"><strong>IP ADDRESS</strong></td><td>Assign a static IP (e.g. <code>192.168.1.50</code>)</td></tr>
+                                        <tr><td><strong>SUBNET MASK</strong></td><td><code>255.255.255.0</code></td></tr>
+                                        <tr><td><strong>ROUTER IP</strong></td><td>Your gateway (e.g. <code>192.168.1.1</code>)</td></tr>
+                                    </table>
+                                </li>
+                            </ol>
+                        </div>
+                    </div>
+
+                    <div class="guide-step">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h4>Enable FOCAS2 Server</h4>
+                            <p>Still in Ethernet Parameters:</p>
+                            <ol>
+                                <li>Navigate to the <kbd>FOCAS2</kbd> or <kbd>PORT</kbd> tab</li>
+                                <li>Set:
+                                    <table class="data-table" style="margin:0.5rem 0">
+                                        <tr><td style="width:140px"><strong>PORT NUMBER</strong></td><td><code>8193</code> (default FOCAS2 port)</td></tr>
+                                        <tr><td><strong>TIME INTERVAL</strong></td><td><code>10</code> (seconds, keepalive)</td></tr>
+                                    </table>
+                                </li>
+                                <li>Cycle power on the CNC to apply changes</li>
+                            </ol>
+                        </div>
+                    </div>
+
+                    <div class="guide-step">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <h4>Set CNC Parameters</h4>
+                            <p>Some parameters must be set for FOCAS2 to work:</p>
+                            <table class="data-table" style="margin:0.5rem 0">
+                                <thead><tr><th>Parameter</th><th>Bit</th><th>Value</th><th>Description</th></tr></thead>
+                                <tbody>
+                                    <tr><td><code>0020</code></td><td>Bit 0 (NE9)</td><td><code>0</code></td><td>Enable embedded Ethernet</td></tr>
+                                    <tr><td><code>0020</code></td><td>Bit 6 (NE6)</td><td><code>0</code></td><td>Enable FOCAS2/Ethernet function</td></tr>
+                                </tbody>
+                            </table>
+                            <p class="text-muted">Parameters vary by controller model. Consult your Fanuc Parameter Manual.</p>
+                        </div>
+                    </div>
+
+                    <div class="guide-step">
+                        <div class="step-number">4</div>
+                        <div class="step-content">
+                            <h4>Add to Configuration</h4>
+                            <p>Add the machine to your <code>pcu20.toml</code>:</p>
+                            <pre class="code-block"><code>[focas]
+enabled = true
+
+[[focas.machines]]
+id = "fanuc-30i"
+name = "Fanuc 30i-Model A"
+host = "192.168.1.50"
+port = 8193
+cnc_type = "fanuc-30i"</code></pre>
+                            <p class="text-muted">Restart this server after editing the config.</p>
+                        </div>
+                    </div>
+
+                    <div class="guide-step">
+                        <div class="step-number">5</div>
+                        <div class="step-content">
+                            <h4>Verify Connection</h4>
+                            <p>Use the <strong>Connection Test</strong> tool above to verify the CNC is reachable on port 8193. Then restart this server — the machine should appear on the <a href="/">Dashboard</a>.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Mori MAPPS Guide -->
+            <div class="guide-content" x-show="activeGuide === 'mori'">
+                <h3>DMG Mori MAPPS Setup</h3>
+                <p class="text-muted">Mori MAPPS machines use a Fanuc 31i controller underneath. Connection is via FOCAS2, same as Fanuc — but Ethernet access is through the MAPPS interface.</p>
+
+                <div class="guide-steps">
+                    <div class="guide-step">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h4>Locate the FOCAS2 Ethernet Port</h4>
+                            <p>On Mori machines, there are typically two Ethernet ports:</p>
+                            <ul>
+                                <li><strong>HMI port</strong> — on the MAPPS PC (for MTConnect / Windows networking)</li>
+                                <li><strong>FOCAS2 port</strong> — on the Fanuc NCU (metal bracket, usually on the back/side of the control cabinet)</li>
+                            </ul>
+                            <p>Connect your network cable to the <strong>FOCAS2 port on the NCU</strong>, not the HMI port.</p>
+                        </div>
+                    </div>
+
+                    <div class="guide-step">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h4>Configure Ethernet via MAPPS</h4>
+                            <ol>
+                                <li>On the MAPPS screen, navigate to <kbd>Setup</kbd> &rarr; <kbd>Communication</kbd></li>
+                                <li>Select the <kbd>Ethernet</kbd> or <kbd>FOCAS</kbd> tab</li>
+                                <li>Set:
+                                    <table class="data-table" style="margin:0.5rem 0">
+                                        <tr><td style="width:140px"><strong>IP Address</strong></td><td>Static IP (e.g. <code>192.168.1.53</code>)</td></tr>
+                                        <tr><td><strong>Subnet Mask</strong></td><td><code>255.255.255.0</code></td></tr>
+                                        <tr><td><strong>Port</strong></td><td><code>8193</code></td></tr>
+                                    </table>
+                                </li>
+                                <li>If not accessible via MAPPS, configure through the underlying Fanuc panel (same as Fanuc guide above — press <kbd>SYSTEM</kbd> &rarr; <kbd>ETHPRM</kbd>)</li>
+                            </ol>
+                        </div>
+                    </div>
+
+                    <div class="guide-step">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <h4>Add to Configuration</h4>
+                            <pre class="code-block"><code>[[focas.machines]]
+id = "mori-nl2500"
+name = "Mori NL2500"
+host = "192.168.1.53"
+port = 8193
+cnc_type = "mori-mapps"</code></pre>
+                        </div>
+                    </div>
+
+                    <div class="guide-step">
+                        <div class="step-number">4</div>
+                        <div class="step-content">
+                            <h4>Verify &amp; Restart</h4>
+                            <p>Test the connection with the tool above, then restart this server. The MAPPS machine will appear with a FOCAS2 badge on the dashboard.</p>
+                            <p class="text-muted"><strong>Note:</strong> Some older Mori machines may require the MAPPS HMI to be fully booted before FOCAS2 becomes available. Allow 2-3 minutes after machine power-on.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Network Requirements -->
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Network Requirements</h2>
+        </div>
+        <div class="panel-body">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Protocol</th>
+                        <th>Direction</th>
+                        <th>Ports</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="protocol-badge protocol-badge--pcu20">PCU20</span></td>
+                        <td>CNC &rarr; This server</td>
+                        <td><code>{{ pcu20_config.base_port }}-{{ pcu20_config.base_port + pcu20_config.num_ports - 1 }}</code> TCP</td>
+                        <td class="text-muted">This server must be reachable from the CNC. Firewall must allow inbound on these ports.</td>
+                    </tr>
+                    <tr>
+                        <td><span class="protocol-badge protocol-badge--focas2">FOCAS2</span></td>
+                        <td>This server &rarr; CNC</td>
+                        <td><code>8193</code> TCP</td>
+                        <td class="text-muted">This server connects to the CNC. Firewall must allow outbound to port 8193.</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge--green">Web UI</span></td>
+                        <td>Browser &rarr; This server</td>
+                        <td><code>8020</code> TCP</td>
+                        <td class="text-muted">Dashboard accessible from any device on the network.</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p class="text-muted" style="margin-top:1rem">All machines and this server must be on the same subnet, or have proper routing configured. Static IPs are recommended for CNC machines.</p>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function setupTools() {
+    return {
+        activeGuide: 'pcu20',
+        scanSubnet: '',
+        scanning: false,
+        scanDone: false,
+        scanResults: [],
+        testHost: '',
+        testPort: 8193,
+        testing: false,
+        testResult: null,
+
+        async runScan() {
+            if (!this.scanSubnet) return;
+            this.scanning = true;
+            this.scanDone = false;
+            this.scanResults = [];
+            try {
+                const resp = await fetch('/setup/api/scan', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({subnet: this.scanSubnet}),
+                });
+                const data = await resp.json();
+                this.scanResults = data.results || [];
+            } catch (e) {
+                console.error('Scan failed:', e);
+            }
+            this.scanning = false;
+            this.scanDone = true;
+        },
+
+        async runTest() {
+            if (!this.testHost || !this.testPort) return;
+            this.testing = true;
+            this.testResult = null;
+            try {
+                const resp = await fetch('/setup/api/test-connection', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({host: this.testHost, port: parseInt(this.testPort)}),
+                });
+                this.testResult = await resp.json();
+            } catch (e) {
+                this.testResult = {reachable: false, error: 'Request failed'};
+            }
+            this.testing = false;
+        },
+    };
+}
+</script>
+{% endblock %}
