@@ -62,7 +62,7 @@ src/pcu20/
 └── web/
     ├── app.py          # FastAPI factory (uses ConnectorRegistry, not tcp_server)
     ├── websocket.py    # WebSocket hub ↔ EventBus
-    ├── routes/         # Page routes (dashboard, machines, shares, files, logs)
+    ├── routes/         # Page routes (dashboard, machines, shares, files, logs, setup)
     ├── templates/      # Jinja2 + htmx templates
     └── static/         # CSS, JS (no build step, no Node.js)
 tools/
@@ -165,6 +165,7 @@ The dashboard (`v0.2.0`, branded "CNC Network Manager") is protocol-aware:
 - **Machine cards have `id="machine-{machine_id}"`** so `app.js` can target them for live updates. If adding new machine card elements, keep this convention.
 - **CNC status CSS classes**: `machine-cnc-status--running` (green), `--idle` (blue), `--alarm` (red), `--stopped` (amber), `--unknown` (grey). Match the `CNCStatus` enum values.
 - **Machines page**: Shows protocol, CNC type, status, and program columns. Axis position section for connected FOCAS machines.
+- **Setup page** (`/setup`): Tabbed setup guides for PCU20, Fanuc, and Mori MAPPS with step-by-step CNC configuration instructions. Network scanner (scans /24 subnets for ports 6743 and 8193). Connection tester with latency measurement. Server info panel with IPs and port reference. Network requirements table for firewall config.
 - **Activity feed filters out `machine.status`** events (too frequent) — only shows connects, disconnects, alarms, and file transfers.
 
 ### WebSocket event flow
