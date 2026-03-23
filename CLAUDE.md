@@ -1,52 +1,72 @@
-# CLAUDE.md — Agent Notes for PCU20 Network Manager
+# CLAUDE.md — Agent Notes for CNC Network Manager
 
 ## What This Project Is
 
-A modern Python replacement for "PCU20 Network Manager" by Stella Nova Industriapplikationer AB — a commercial Windows-only tool (.NET 4.0 GUI + Delphi Windows Service) that acts as a TCP file server for Siemens Sinumerik PCU20 CNC controllers (810D). The original installer is `pcu20net-setup.exe` in the repo root.
+A multi-protocol CNC communication platform that started as a replacement for "PCU20 Network Manager" by Stella Nova Industriapplikationer AB. It now supports multiple CNC protocols through a unified web dashboard. The original Sinumerik PCU20 installer is `pcu20net-setup.exe` in the repo root.
 
-The PCU20 is a Linux-based embedded HMI for Sinumerik 810D/840D CNC machines. It connects over LAN to this software as a **client** to upload/download NC program files.
+**Supported CNC types:**
+- **Sinumerik PCU20 (810D)** — custom TCP protocol, ports 6743–6757, inbound (CNC connects to us)
+- **Fanuc 30i, 16i, 0i-MD** — FOCAS2 protocol, port 8193, outbound (we connect to CNC)
+- **Mori MAPPS (Fanuc 31i)** — FOCAS2 protocol (same as Fanuc, MAPPS is a UI layer)
+- **LinuxCNC** — future, extensible via `BaseProtocolConnector`
 
 ## Architecture
 
-Single Python process running two concurrent servers on one asyncio event loop:
+```
+ConnectorRegistry (unified interface)
+├── PCU20Server (BaseProtocolConnector) — inbound TCP, ports 6743-6757
+├── FocasConnector (BaseProtocolConnector) — outbound client, port 8193
+└── (future: LinuxCNCConnector, etc.)
+        │
+        ▼
+Shared infrastructure:
+  EventBus, ShareManager, VersionManager, MachineRegistry
+        │
+        ▼
+  Web Dashboard (protocol-aware, FastAPI + htmx/Alpine.js)
+```
 
-- **TCP File Server** (ports 6743–6757) — implements the PCU20 FTP protocol
-- **Web Dashboard** (port 8020) — FastAPI + htmx/Alpine.js, real-time via WebSocket
-
-An internal `EventBus` (`src/pcu20/event_bus.py`) bridges TCP events to WebSocket clients.
+Key architectural pattern: `BaseProtocolConnector` ABC handles both inbound (CNC connects to us) and outbound (we connect to CNC) connection models through a uniform `start/stop/get_sessions/list_files/read_file/write_file` interface.
 
 ## Project Layout
 
 ```
 src/pcu20/
 ├── cli.py              # Click CLI (entry point)
-├── config.py           # Pydantic config models, loads pcu20.toml
-├── app.py              # Orchestrator — starts TCP + web servers
+├── config.py           # Pydantic config: PCU20Config, FocasConfig, AppConfig
+├── app.py              # Orchestrator — builds ConnectorRegistry, starts all
 ├── event_bus.py        # Async pub/sub for internal events
-├── protocol/           # PCU20 TCP protocol implementation
-│   ├── server.py       # Multi-port asyncio TCP server
-│   ├── codec.py        # Wire format framing (PROVISIONAL — needs real captures)
+├── protocol/           # Protocol abstraction + PCU20 implementation
+│   ├── base.py         # BaseProtocolConnector ABC, ProtocolType, CNCStatus enums
+│   ├── registry.py     # ConnectorRegistry — manages all protocol connectors
+│   ├── server.py       # PCU20Server(BaseProtocolConnector) — inbound TCP
+│   ├── codec.py        # PCU20 wire format framing (PROVISIONAL)
 │   ├── session.py      # Per-connection state machine
 │   ├── commands.py     # Command registry + dispatcher
-│   ├── handlers.py     # File/dir operation handlers
+│   ├── handlers.py     # PCU20 file/dir operation handlers
 │   ├── auth.py         # Login/password validation
-│   ├── types.py        # Protocol enums, constants (PROVISIONAL command IDs)
+│   ├── types.py        # PCU20 protocol enums, constants (PROVISIONAL)
 │   └── discovery.py    # Unknown-command hex dump logger
+├── focas/              # FOCAS2 protocol module (Fanuc/Mori)
+│   ├── client.py       # FocasClient — low-level wrapper (pyfocas ctypes or pyfanuc)
+│   ├── connector.py    # FocasConnector(BaseProtocolConnector) — outbound client
+│   ├── poller.py       # FocasPoller — async status polling loop
+│   └── types.py        # FOCAS2-specific enums (FocasRunState, FocasMode, etc.)
 ├── storage/
-│   ├── shares.py       # Virtual path → local filesystem mapping
+│   ├── shares.py       # Virtual path → local filesystem mapping (protocol-agnostic)
 │   ├── filesystem.py   # Sandboxed file I/O helpers
-│   └── versioning.py   # Git-based NC program version tracking
+│   └── versioning.py   # Git-based NC program version tracking (protocol-agnostic)
 ├── machines/
-│   ├── registry.py     # Connected machine tracking
-│   └── models.py       # Machine data models
+│   ├── registry.py     # Machine tracking by machine_id (supports all protocols)
+│   └── models.py       # Machine model with protocol_type + live CNC status fields
 └── web/
-    ├── app.py          # FastAPI factory
+    ├── app.py          # FastAPI factory (uses ConnectorRegistry, not tcp_server)
     ├── websocket.py    # WebSocket hub ↔ EventBus
     ├── routes/         # Page routes (dashboard, machines, shares, files, logs)
     ├── templates/      # Jinja2 + htmx templates
     └── static/         # CSS, JS (no build step, no Node.js)
 tools/
-├── capture_proxy.py    # MITM TCP proxy for protocol reverse-engineering
+├── capture_proxy.py    # MITM TCP proxy for PCU20 protocol reverse-engineering
 └── replay.py           # Replay captured sessions for testing
 tests/                  # pytest (25 tests passing)
 ```
@@ -56,9 +76,10 @@ tests/                  # pytest (25 tests passing)
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install ".[dev]"      # NOT -e (editable broken on Python 3.14 with hatchling)
-python -m pcu20           # Start server
-python -m pytest tests/   # Run tests
+pip install ".[dev]"           # Core + dev tools
+pip install ".[dev,focas]"     # Also install FOCAS2 library (if available)
+python -m pcu20                # Start server
+python -m pytest tests/        # Run tests
 ```
 
 Note: On Python 3.14, `pip install -e` fails due to a hatchling `.pth` file processing issue. Use non-editable install and re-run `pip install ".[dev]"` after source changes.
@@ -66,100 +87,117 @@ Note: On Python 3.14, `pip install -e` fails due to a hatchling `.pth` file proc
 ## Key Commands
 
 ```bash
-python -m pcu20                    # Start server (TCP + web)
+python -m pcu20                    # Start server (all enabled protocols + web)
 python -m pcu20 --config my.toml   # Custom config file
 python -m pcu20 init-config        # Generate default pcu20.toml
-python -m pcu20 capture --target-host <IP>  # MITM capture proxy
+python -m pcu20 capture --target-host <IP>  # MITM capture proxy (PCU20)
 ```
 
-## Critical: Protocol Is Provisional
+## Config Structure
 
-**The wire format in `protocol/codec.py` and command IDs in `protocol/types.py` are educated guesses.** They have NOT been validated against a real PCU20. The actual binary framing, command IDs, and payload formats must be discovered by:
+The config uses `[pcu20]` for Sinumerik and `[focas]` for Fanuc/Mori. Old `[server]` key is auto-mapped to `[pcu20]` for backward compatibility.
+
+```toml
+[pcu20]
+enabled = true
+base_port = 6743
+num_ports = 15
+
+[focas]
+enabled = true
+poll_interval = 2.0
+
+[[focas.machines]]
+id = "fanuc-30i"
+name = "Fanuc 30i-Model A"
+host = "192.168.1.50"
+cnc_type = "fanuc-30i"
+
+[[focas.machines]]
+id = "mori-mapps"
+name = "Mori NL2500"
+host = "192.168.1.53"
+cnc_type = "mori-mapps"
+
+[web]
+enabled = true
+port = 8020
+
+[[shares]]
+name = "NCDATA"
+path = "./ncdata"
+```
+
+## Adding a New Protocol Connector
+
+To add support for a new CNC type (e.g., LinuxCNC):
+
+1. Create `src/pcu20/yourproto/connector.py` inheriting `BaseProtocolConnector`
+2. Implement: `start()`, `stop()`, `get_sessions()`, `list_files()`, `read_file()`, `write_file()`
+3. Set `protocol_type` (add to `ProtocolType` enum in `protocol/base.py`) and `direction`
+4. Add config class to `config.py` and field to `AppConfig`
+5. Wire into `app.py` with conditional `connector_registry.register()`
+6. The web dashboard, event bus, share manager, and versioning work automatically
+
+## Critical: PCU20 Protocol Is Provisional
+
+**The wire format in `protocol/codec.py` and command IDs in `protocol/types.py` are educated guesses.** They have NOT been validated against a real PCU20. Discover the real protocol by:
 
 1. Running `capture_proxy.py` between a real PCU20 and the original Stella Nova software
-2. Analyzing the hex dumps to determine the real frame format
-3. Updating `codec.py` (framing), `types.py` (command IDs), and `handlers.py` (payload parsing)
+2. Analyzing hex dumps to determine the real frame format
+3. Updating `codec.py`, `types.py`, and `handlers.py`
 
-The protocol discovery module (`discovery.py`) logs all unknown commands with full hex dumps to help with this.
+## FOCAS2 Client Status
 
-### What we know from reverse-engineering the installer:
-- Ports 6743–6757 (registered as `pcu20_ftp1` through `pcu20_ftp15`)
-- PC is the **server**, CNC connects as **client**
-- Custom binary protocol (NOT standard FTP despite the port names)
-- Commands: Login, ReadFileFromServer, WriteFileToServer, ReadDirFromServer, GetDirList, MkDir, RmDir, StatFile, ChModFile, AccessFile, SearchInFile, GetFreeMem, GetVersion, TerminateConnect
-- Password-based auth (default user `PCU20_USER`)
-- PCU20 uses Linux internally (paths use `/`)
-- The original Delphi service logged to `nwmtrace.log`
+The `focas/client.py` methods are **stubs** awaiting real hardware testing. The architecture (connector, poller, event integration) is fully wired — just needs:
+1. Install `pyfocas` (ctypes wrapper) or `pyfanuc` (pure Python)
+2. Fill in `FocasClient` methods with actual FOCAS2 API calls
+3. Test against a real Fanuc 30i first (most capable, best documented)
+
+The client auto-detects available backends: tries `pyfocas` → `pyfanuc` → disables with clear error.
 
 ## Code Patterns & Gotchas
 
-- **Starlette TemplateResponse API**: Use `templates.TemplateResponse(request, "name.html", context)` — `request` is the first arg, not inside the context dict. Required on recent Starlette (Python 3.14 compatibility).
-- **Blocking I/O in async handlers**: All file operations in `handlers.py` use `asyncio.to_thread()` to avoid blocking the event loop. Follow this pattern for any new handlers that do filesystem or git operations.
-- **`_require_auth` takes `command_id`**: When adding new handlers, pass the command's ID so error responses have the correct command ID: `if err := _require_auth(session, CommandId.YOUR_CMD): return err`.
-- **Path traversal protection**: `shares.py` uses `Path.is_relative_to()` (not `startswith()`). Never bypass this — always resolve paths through `ShareManager.resolve()`.
-- **Password comparison**: `auth.py` uses `hmac.compare_digest()` to prevent timing side-channels. Don't switch to `==`.
-- **Versioning is wired into handlers**: `handle_write_file` calls `self.versions.on_file_written()` after each CNC write. Git/snapshot ops run in a thread executor via `asyncio.to_thread()`.
-- **Config validation**: `logging.level` and `versioning.strategy` use regex validators. Invalid values are rejected at config load, not silently ignored.
-- **WebSocket per page**: Only the dashboard page opens a persistent WebSocket (via `app.js`). The logs page uses htmx `ws-connect` for its own stream. Other pages just probe for server status. Don't add `hx-ext="ws" ws-connect="/ws"` to templates — it creates duplicate connections.
-- **Idle timeout**: TCP connections time out after 5 minutes of inactivity (`server.py`). The CNC must send data within this window.
-- **Session cleanup**: Use `self.sessions.pop(id, None)` not `del self.sessions[id]` — the latter races with `stop()` during shutdown.
+- **Multi-protocol routing**: Web routes use `request.app.state.connector_registry` (not `tcp_server`). `ConnectorRegistry.all_sessions()` returns unified sessions across all protocols.
+- **Machine IDs**: PCU20 machines use IP as their ID (discovered on connect). FOCAS machines use the config-defined `id` field (known at startup). `MachineRegistry` keys by `machine_id`.
+- **Config backward compat**: Old `[server]` key auto-maps to `[pcu20]` via Pydantic `model_validator`.
+- **Starlette TemplateResponse API**: Use `templates.TemplateResponse(request, "name.html", context)` — `request` is first arg, not in context dict.
+- **Blocking I/O in async**: All file ops and FOCAS2 calls use `asyncio.to_thread()`. Follow this pattern for any new blocking code.
+- **`_require_auth` takes `command_id`**: Pass the command's ID so error responses have the correct ID.
+- **Path traversal protection**: `shares.py` uses `Path.is_relative_to()`. Always resolve paths through `ShareManager.resolve()`.
+- **Password comparison**: `auth.py` uses `hmac.compare_digest()`. Don't switch to `==`.
+- **WebSocket per page**: Dashboard uses `app.js` WS. Logs page uses htmx `ws-connect`. Don't add both — creates duplicate connections.
+- **Idle timeout**: PCU20 TCP connections time out after 5 minutes.
+- **Session cleanup**: Use `.pop(id, None)` not `del` — the latter races with `stop()`.
 
-## Completed Audit Fixes (commit 19c279d)
+## Known Remaining Issues
 
-A deep code audit identified 30+ issues. The following 17 were fixed:
-
-**Critical:**
-1. Path traversal bypass — `startswith()` replaced with `Path.is_relative_to()`
-2. Blocking I/O in all async handlers — wrapped in `asyncio.to_thread()`
-3. Version manager was disconnected — now wired into `Handlers` and called on file writes
-4. `_require_auth` returned command_id=0 — now takes the actual command ID as parameter
-5. Session dict `KeyError` on shutdown — `del` replaced with `.pop(session.id, None)`
-6. No idle timeout — added 5-minute `asyncio.wait_for` on TCP reads
-
-**Security:**
-7. Timing side-channel — password comparison uses `hmac.compare_digest()`
-8. Login payload truncated to 256 chars to prevent memory abuse
-
-**Robustness:**
-9. Codec frame resync — skips 1 byte on invalid frame instead of discarding entire buffer
-10. Versioning root walk — bounded to known share roots (no walk to `/`)
-11. Versioning I/O — git/snapshot ops run in thread executor
-12. Config validation — `logging.level` and `versioning.strategy` validated with regex
-13. CLI — log level from config now actually applied; capture import works when installed
-
-**Web:**
-14. Duplicate WebSocket connections — removed htmx `ws-connect` from dashboard; `app.js` only opens WS on dashboard page
-15. Dashboard ports — sourced from config instead of hardcoded `6743`
-16. Machines `last_seen` — formatted as date instead of raw Unix timestamp
-17. API 404s — file/history routes return proper HTTP 404 instead of 200
-
-## Known Remaining Issues (from audit, not yet fixed)
-
-- **Test coverage is low** — only codec, session, and shares have tests (25 total). No tests for: auth, handlers, commands, server, versioning, machines, event_bus, config loading, web routes, WebSocket. Zero async tests despite async-first codebase.
+- **Test coverage is low** — 25 tests covering codec, session, shares only. No tests for: auth, handlers, commands, server, FOCAS module, versioning, machines, event_bus, config, web routes.
+- **FOCAS2 client is stubs** — needs real hardware to implement actual API calls.
 - **No web dashboard authentication** — all routes are public (acceptable for LAN-only use).
-- **`filesystem.py` is unused** — handlers implement file I/O inline. Could be removed or handlers refactored to use it.
+- **`app.js` connected count can drift** — should periodically fetch true count from API.
 - **CDN scripts without SRI hashes** — htmx/Alpine.js loaded without integrity attributes.
-- **`app.js` connected count can drift** — increment/decrement logic desyncs if WebSocket events are missed. Should periodically fetch true count from API.
-- **`discovery.py` unused `TYPE_CHECKING` import** — `Session` imported but never referenced in annotations.
 
 ## What's Left to Build
 
-### Phase 1 (protocol validation)
+### Next: Dashboard enhancements (Phase 3)
+- Machine status cards with protocol badges (PCU20/FOCAS2)
+- Live axis position display for FOCAS machines
+- Alarm panel (red banner when any machine has active alarms)
+- File transfer UI for FOCAS machines (upload/download per machine)
+- Updated machines page with protocol-specific columns
+
+### PCU20 protocol validation
 - Run MITM capture against real hardware
 - Update codec with real frame format
-- Validate/fix all command handlers against real traffic
-- Add replay-based integration tests from captured sessions
+- Add replay-based integration tests
 
-### Phase 2 (features)
-- File upload/download from the web UI
-- Share management CRUD via web UI (currently config-file only)
-- NC program diff viewer in version history
-- Machine naming/labeling in the web UI
-- Expand test coverage (auth, handlers, web routes, async integration tests)
+### FOCAS2 implementation
+- Fill in FocasClient methods with real FOCAS2 API calls
+- Test against Fanuc 30i, then 16i, 0i-MD, Mori MAPPS
+- FOCAS2 reconnection with exponential backoff
 
-### Phase 3 (production)
-- systemd unit file for Linux deployment
-- Windows service support (nssm)
-- Docker image
-- TLS support for the web dashboard
-- Authentication for the web dashboard (if needed beyond LAN)
+### Production hardening
+- Expand test coverage
+- systemd unit / Docker image
+- LinuxCNC connector (future)
