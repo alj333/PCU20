@@ -156,6 +156,23 @@ The `focas/client.py` methods are **stubs** awaiting real hardware testing. The 
 
 The client auto-detects available backends: tries `pyfocas` → `pyfanuc` → disables with clear error.
 
+## Dashboard & Web UI
+
+The dashboard (`v0.2.0`, branded "CNC Network Manager") is protocol-aware:
+
+- **Machine fleet grid**: One card per machine with protocol badge (PCU20 purple / FOCAS2 blue), connection dot, CNC status indicator, mode, program number, live axis positions, and inline alarms. Cards update in real-time via WebSocket `machine.status` events.
+- **Alarm banner**: Red pulsing banner auto-appears when any machine has active alarms. Tracks alarm state in JS `activeAlarms` object keyed by `machine_id`.
+- **Machine cards have `id="machine-{machine_id}"`** so `app.js` can target them for live updates. If adding new machine card elements, keep this convention.
+- **CNC status CSS classes**: `machine-cnc-status--running` (green), `--idle` (blue), `--alarm` (red), `--stopped` (amber), `--unknown` (grey). Match the `CNCStatus` enum values.
+- **Machines page**: Shows protocol, CNC type, status, and program columns. Axis position section for connected FOCAS machines.
+- **Activity feed filters out `machine.status`** events (too frequent) — only shows connects, disconnects, alarms, and file transfers.
+
+### WebSocket event flow
+- Dashboard page opens one persistent WS via `app.js` `connectWebSocket()`.
+- Logs page opens one WS via htmx `ws-connect="/ws"` for the Alpine `logViewer` component.
+- Other pages only probe WS for server status (connect then immediately close).
+- Never add `hx-ext="ws" ws-connect="/ws"` AND use `app.js` WS on the same page.
+
 ## Code Patterns & Gotchas
 
 - **Multi-protocol routing**: Web routes use `request.app.state.connector_registry` (not `tcp_server`). `ConnectorRegistry.all_sessions()` returns unified sessions across all protocols.
@@ -166,7 +183,6 @@ The client auto-detects available backends: tries `pyfocas` → `pyfanuc` → di
 - **`_require_auth` takes `command_id`**: Pass the command's ID so error responses have the correct ID.
 - **Path traversal protection**: `shares.py` uses `Path.is_relative_to()`. Always resolve paths through `ShareManager.resolve()`.
 - **Password comparison**: `auth.py` uses `hmac.compare_digest()`. Don't switch to `==`.
-- **WebSocket per page**: Dashboard uses `app.js` WS. Logs page uses htmx `ws-connect`. Don't add both — creates duplicate connections.
 - **Idle timeout**: PCU20 TCP connections time out after 5 minutes.
 - **Session cleanup**: Use `.pop(id, None)` not `del` — the latter races with `stop()`.
 
@@ -176,16 +192,9 @@ The client auto-detects available backends: tries `pyfocas` → `pyfanuc` → di
 - **FOCAS2 client is stubs** — needs real hardware to implement actual API calls.
 - **No web dashboard authentication** — all routes are public (acceptable for LAN-only use).
 - **`app.js` connected count can drift** — should periodically fetch true count from API.
-- **CDN scripts without SRI hashes** — htmx/Alpine.js loaded without integrity attributes.
+- **File transfer UI for FOCAS** — not yet built; machines page shows status but no upload/download buttons.
 
 ## What's Left to Build
-
-### Next: Dashboard enhancements (Phase 3)
-- Machine status cards with protocol badges (PCU20/FOCAS2)
-- Live axis position display for FOCAS machines
-- Alarm panel (red banner when any machine has active alarms)
-- File transfer UI for FOCAS machines (upload/download per machine)
-- Updated machines page with protocol-specific columns
 
 ### PCU20 protocol validation
 - Run MITM capture against real hardware
@@ -196,6 +205,11 @@ The client auto-detects available backends: tries `pyfocas` → `pyfanuc` → di
 - Fill in FocasClient methods with real FOCAS2 API calls
 - Test against Fanuc 30i, then 16i, 0i-MD, Mori MAPPS
 - FOCAS2 reconnection with exponential backoff
+
+### Features
+- File transfer UI for FOCAS machines (upload/download buttons per machine)
+- NC program diff viewer in version history
+- Share management CRUD via web UI
 
 ### Production hardening
 - Expand test coverage
