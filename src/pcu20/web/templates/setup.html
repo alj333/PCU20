@@ -83,34 +83,34 @@
                 <div class="form-grid">
                     <div class="form-field">
                         <label class="toolbar-label">Machine ID</label>
-                        <input class="input" type="text" x-model="newMachine.id" placeholder="fanuc-30i" style="width:100%">
+                        <input class="input" type="text" x-model="newMachine.id" placeholder="fanuc-30i">
                     </div>
                     <div class="form-field">
                         <label class="toolbar-label">Display Name</label>
-                        <input class="input" type="text" x-model="newMachine.name" placeholder="Fanuc 30i-Model A" style="width:100%">
+                        <input class="input" type="text" x-model="newMachine.name" placeholder="Fanuc 30i-Model A">
                     </div>
                     <div class="form-field">
                         <label class="toolbar-label">IP Address</label>
-                        <input class="input" type="text" x-model="newMachine.host" placeholder="192.168.1.50" style="width:100%">
+                        <input class="input" type="text" x-model="newMachine.host" placeholder="192.168.1.50">
                     </div>
                     <div class="form-field">
                         <label class="toolbar-label">Port</label>
-                        <input class="input" type="number" x-model="newMachine.port" placeholder="8193" style="width:100%">
+                        <input class="input" type="number" x-model="newMachine.port" placeholder="8193">
                     </div>
                     <div class="form-field">
                         <label class="toolbar-label">CNC Type</label>
-                        <select class="input" x-model="newMachine.cnc_type" style="width:100%">
-                            <option value="">Select type...</option>
+                        <select class="input" x-model="newMachine.cnc_type">
+                            <option value="">Select...</option>
                             <option value="fanuc-30i">Fanuc 30i</option>
                             <option value="fanuc-16i">Fanuc 16i</option>
                             <option value="fanuc-0i">Fanuc 0i-MD</option>
                             <option value="mori-mapps">Mori MAPPS</option>
                         </select>
                     </div>
-                    <div class="form-field" style="display:flex;align-items:flex-end">
-                        <button class="btn" @click="addMachine()" :disabled="!newMachine.id || !newMachine.host || addingMachine">
+                    <div class="form-field">
+                        <button class="btn" @click="addMachine()" :disabled="!newMachine.id || !newMachine.host || addingMachine" style="white-space:nowrap">
                             <template x-if="addingMachine"><span>Adding...</span></template>
-                            <template x-if="!addingMachine"><span>Add Machine</span></template>
+                            <template x-if="!addingMachine"><span>+ Add</span></template>
                         </button>
                     </div>
                 </div>
