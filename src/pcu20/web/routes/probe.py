@@ -169,6 +169,7 @@ def generate_probe_gcode(cycle: str, mode: str, params: dict) -> str:
         "boss": _gen_boss,
         "corner": _gen_corner,
         "pocket_width": _gen_pocket_width,
+        "outside_box": _gen_outside_box,
     }
 
     gen = generators.get(cycle)
@@ -480,6 +481,139 @@ def _gen_pocket_width(mode: str, params: dict, wcs: str, feed: int,
             lines.append(_set_wcs_gcode(wcs, axis, "#110"))
 
     lines.append(f"")
+    lines.append(f"G00 Z{clearance}")
+    lines.append("")
+    lines.append(_footer())
+    return "\n".join(lines)
+
+
+# --- Outside Box (Stock Setup) ---
+
+def _gen_outside_box(mode: str, params: dict, wcs: str, feed: int,
+                     tool: int, clearance: float, set_wcs: bool) -> str:
+    """Probe outside of rectangular stock to find X/Y center and Z top.
+
+    The operator positions the probe approximately above the center of the stock.
+    The cycle:
+    1. Probes Z top surface
+    2. Moves down to probe_z, probes X+ then X- (finds X center)
+    3. Probes Y+ then Y- (finds Y center)
+    4. Returns to center at clearance height
+    5. Sets WCS X/Y to stock center, Z to top surface
+    """
+    x_width = float(params.get("x_width", 100))
+    y_width = float(params.get("y_width", 100))
+    z_start = float(params.get("z_start", 10))       # Height above stock to start
+    probe_z = float(params.get("probe_z", -10))       # Z depth for X/Y probing
+    safety = float(params.get("safety", 20))           # Extra clearance beyond stock edge
+    probe_top = params.get("probe_top", True)          # Probe Z top surface
+
+    half_x = x_width / 2
+    half_y = y_width / 2
+    overshoot_x = half_x + safety
+    overshoot_y = half_y + safety
+
+    lines = [_header(tool, f"Outside Box - Stock Setup {x_width}x{y_width}")]
+    lines.append(f"(Stock size: X={x_width} Y={y_width})")
+    lines.append(f"(Safety clearance: {safety}mm beyond stock edge)")
+    lines.append(f"(Position probe near center of stock before running)")
+    lines.append(f"")
+
+    if mode == "renishaw":
+        wcs_num = {"G54": 1, "G55": 2, "G56": 3, "G57": 4, "G58": 5, "G59": 6}.get(wcs, 1)
+
+        if probe_top:
+            lines.append(f"(=== Step 1: Probe Z top surface ===)")
+            lines.append(f"G00 Z{z_start}")
+            lines.append(f"G65 P9811 Z0. S{wcs_num if set_wcs else 0} F{feed}")
+            lines.append(f"G00 Z{clearance}")
+            lines.append(f"")
+
+        lines.append(f"(=== Step 2: Probe X width (find center) ===)")
+        lines.append(f"G00 Z{probe_z}")
+        lines.append(f"G65 P9812 X{x_width} S{wcs_num if set_wcs else 0} F{feed}")
+        lines.append(f"G00 Z{clearance}")
+        lines.append(f"")
+
+        lines.append(f"(=== Step 3: Probe Y width (find center) ===)")
+        lines.append(f"G00 Z{probe_z}")
+        lines.append(f"G65 P9812 Y{y_width} S{wcs_num if set_wcs else 0} F{feed}")
+        lines.append(f"G00 Z{clearance}")
+
+        if set_wcs:
+            lines.append(f"({wcs} X/Y/Z set to stock center and top)")
+
+    else:
+        # Manual mode — full sequence with G31
+
+        if probe_top:
+            lines.append(f"(=== Step 1: Probe Z top surface ===)")
+            lines.append(f"G00 Z{z_start}")
+            lines.append(f"G31 Z-{z_start + 20:.1f} F{feed}")
+            lines.append(f"#100 = #5063 (Z top surface)")
+            lines.append(f"G00 Z{z_start}")
+            lines.append(f"")
+
+        lines.append(f"(=== Step 2: Probe X sides ===)")
+        lines.append(f"(Move to X+ side)")
+        lines.append(f"G00 X{overshoot_x:.1f}")
+        lines.append(f"G00 Z{probe_z}")
+        lines.append(f"G31 X-{overshoot_x:.1f} F{feed}")
+        lines.append(f"#101 = #5061 (X+ surface)")
+        lines.append(f"G00 Z{clearance}")
+        lines.append(f"")
+        lines.append(f"(Move to X- side)")
+        lines.append(f"G00 X-{overshoot_x:.1f}")
+        lines.append(f"G00 Z{probe_z}")
+        lines.append(f"G31 X{overshoot_x:.1f} F{feed}")
+        lines.append(f"#102 = #5061 (X- surface)")
+        lines.append(f"G00 Z{clearance}")
+        lines.append(f"")
+        lines.append(f"(X center)")
+        lines.append(f"#110 = [#101 + #102] / 2")
+        lines.append(f"(X measured width = ABS[#101 - #102])")
+        lines.append(f"")
+
+        lines.append(f"(=== Step 3: Probe Y sides ===)")
+        lines.append(f"(Move to center X, then Y+ side)")
+        lines.append(f"G00 X#110")
+        lines.append(f"G00 Y{overshoot_y:.1f}")
+        lines.append(f"G00 Z{probe_z}")
+        lines.append(f"G31 Y-{overshoot_y:.1f} F{feed}")
+        lines.append(f"#103 = #5062 (Y+ surface)")
+        lines.append(f"G00 Z{clearance}")
+        lines.append(f"")
+        lines.append(f"(Move to Y- side)")
+        lines.append(f"G00 Y-{overshoot_y:.1f}")
+        lines.append(f"G00 Z{probe_z}")
+        lines.append(f"G31 Y{overshoot_y:.1f} F{feed}")
+        lines.append(f"#104 = #5062 (Y- surface)")
+        lines.append(f"G00 Z{clearance}")
+        lines.append(f"")
+        lines.append(f"(Y center)")
+        lines.append(f"#111 = [#103 + #104] / 2")
+        lines.append(f"(Y measured width = ABS[#103 - #104])")
+        lines.append(f"")
+
+        lines.append(f"(=== Results ===)")
+        lines.append(f"(X center = #110)")
+        lines.append(f"(Y center = #111)")
+        if probe_top:
+            lines.append(f"(Z top    = #100)")
+
+        if set_wcs:
+            lines.append(f"")
+            lines.append(f"(=== Set {wcs} to stock center/top ===)")
+            lines.append(_set_wcs_gcode(wcs, "X", "#110"))
+            lines.append(_set_wcs_gcode(wcs, "Y", "#111"))
+            if probe_top:
+                lines.append(_set_wcs_gcode(wcs, "Z", "#100"))
+
+        # Return to center
+        lines.append(f"")
+        lines.append(f"(Return to center)")
+        lines.append(f"G00 X#110 Y#111")
+
     lines.append(f"G00 Z{clearance}")
     lines.append("")
     lines.append(_footer())

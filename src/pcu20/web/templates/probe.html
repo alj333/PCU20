@@ -137,6 +137,26 @@
             <div class="probe-cycle-desc">Measure width and find center</div>
         </div>
 
+        <div class="probe-cycle-card" :class="{'probe-cycle-card--active': cycle === 'outside_box'}" @click="selectCycle('outside_box')">
+            <div class="probe-cycle-icon">
+                <svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="15" y="25" width="50" height="40" fill="rgba(76,141,255,0.1)" stroke="var(--accent-blue)" stroke-width="2"/>
+                    <circle cx="40" cy="45" r="2" fill="var(--accent-green)"/>
+                    <line x1="15" y1="45" x2="65" y2="45" stroke="var(--accent-green)" stroke-width="1" stroke-dasharray="3,3"/>
+                    <line x1="40" y1="25" x2="40" y2="65" stroke="var(--accent-green)" stroke-width="1" stroke-dasharray="3,3"/>
+                    <!-- arrows showing probe directions -->
+                    <line x1="5" y1="45" x2="14" y2="45" stroke="var(--accent-amber)" stroke-width="1.5" marker-end="url(#arrowR)"/>
+                    <line x1="75" y1="45" x2="66" y2="45" stroke="var(--accent-amber)" stroke-width="1.5"/>
+                    <line x1="40" y1="15" x2="40" y2="24" stroke="var(--accent-amber)" stroke-width="1.5"/>
+                    <line x1="40" y1="75" x2="40" y2="66" stroke="var(--accent-amber)" stroke-width="1.5"/>
+                    <circle cx="40" cy="10" r="4" fill="none" stroke="var(--accent-amber)" stroke-width="2"/>
+                    <text x="40" y="80" text-anchor="middle" fill="var(--text-muted)" font-size="7">X/Y/Z</text>
+                </svg>
+            </div>
+            <div class="probe-cycle-label">Outside Box</div>
+            <div class="probe-cycle-desc">Find stock center + Z top</div>
+        </div>
+
     </div>
 
     <!-- Cycle Parameters -->
@@ -241,6 +261,38 @@
                         <div class="form-field">
                             <label class="toolbar-label">Probe Depth (Z)</label>
                             <input class="input" type="number" x-model="params.depth" step="0.1">
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Outside Box params -->
+                <template x-if="cycle === 'outside_box'">
+                    <div class="form-grid">
+                        <div class="form-field">
+                            <label class="toolbar-label">Stock X Width (est.)</label>
+                            <input class="input" type="number" x-model="params.x_width" step="1">
+                        </div>
+                        <div class="form-field">
+                            <label class="toolbar-label">Stock Y Width (est.)</label>
+                            <input class="input" type="number" x-model="params.y_width" step="1">
+                        </div>
+                        <div class="form-field">
+                            <label class="toolbar-label">Z Start Height</label>
+                            <input class="input" type="number" x-model="params.z_start" step="1">
+                        </div>
+                        <div class="form-field">
+                            <label class="toolbar-label">X/Y Probe Depth (Z)</label>
+                            <input class="input" type="number" x-model="params.probe_z" step="1">
+                        </div>
+                        <div class="form-field">
+                            <label class="toolbar-label">Safety Clearance</label>
+                            <input class="input" type="number" x-model="params.safety" step="1">
+                        </div>
+                        <div class="form-field" style="align-self:end">
+                            <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+                                <input type="checkbox" x-model="params.probe_top">
+                                <span>Probe Z top</span>
+                            </label>
                         </div>
                     </div>
                 </template>
@@ -431,6 +483,7 @@ function probeSetup() {
                 boss: 'Boss / Cylinder',
                 corner: 'Corner',
                 pocket_width: 'Pocket Width',
+                outside_box: 'Outside Box',
             };
             return labels[this.cycle] || '';
         },
@@ -446,6 +499,7 @@ function probeSetup() {
                 boss: {diameter: 50, probe_z: -5},
                 corner: {corner: 'XY++', probe_z: -5, distance: 20},
                 pocket_width: {axis: 'X', width: 50, depth: -10},
+                outside_box: {x_width: 100, y_width: 100, z_start: 10, probe_z: -10, safety: 20, probe_top: true},
             };
             this.params = defaults[c] || {};
         },
