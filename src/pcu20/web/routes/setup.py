@@ -1,16 +1,20 @@
-"""Setup guide and network tools routes."""
+"""Setup guide, network tools, and machine management routes."""
 
 from __future__ import annotations
 
 import asyncio
+import re
 import socket
 import struct
 import time
+from pathlib import Path
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 import structlog
+
+from pcu20.config import FocasMachineConfig, save_config
 
 log = structlog.get_logger()
 
@@ -23,13 +27,13 @@ async def setup_page(request: Request):
     config = request.app.state.config
     templates = request.app.state.templates
 
-    # Detect this server's IP addresses
     server_ips = await asyncio.to_thread(_get_local_ips)
 
     return templates.TemplateResponse(request, "setup.html", {
         "server_ips": server_ips,
         "pcu20_config": config.pcu20,
         "focas_config": config.focas,
+        "focas_machines": [m.model_dump() for m in config.focas.machines],
     })
 
 
@@ -56,6 +60,99 @@ async def api_test_connection(request: Request):
 
     result = await asyncio.to_thread(_test_connection, host, int(port))
     return result
+
+
+@router.post("/api/add-machine")
+async def api_add_machine(request: Request):
+    """Add a FOCAS2 machine to the configuration and save."""
+    body = await request.json()
+    machine_id = body.get("id", "").strip()
+    name = body.get("name", "").strip()
+    host = body.get("host", "").strip()
+    port = int(body.get("port", 8193))
+    cnc_type = body.get("cnc_type", "").strip()
+
+    # Validate
+    if not machine_id:
+        return JSONResponse({"error": "Machine ID is required"}, status_code=400)
+    if not host:
+        return JSONResponse({"error": "Host IP is required"}, status_code=400)
+    if not re.match(r'^[a-zA-Z0-9_-]+$', machine_id):
+        return JSONResponse({"error": "ID must be alphanumeric (a-z, 0-9, -, _)"}, status_code=400)
+
+    config = request.app.state.config
+
+    # Check for duplicate ID
+    for m in config.focas.machines:
+        if m.id == machine_id:
+            return JSONResponse({"error": f"Machine '{machine_id}' already exists"}, status_code=409)
+
+    # Add the machine
+    new_machine = FocasMachineConfig(
+        id=machine_id,
+        name=name or machine_id,
+        host=host,
+        port=port,
+        cnc_type=cnc_type,
+    )
+    config.focas.machines.append(new_machine)
+    config.focas.enabled = True
+
+    # Save config
+    config_path = Path("pcu20.toml")
+    await asyncio.to_thread(save_config, config, config_path)
+
+    # Register with machine registry if running
+    machine_registry = request.app.state.machine_registry
+    machine_registry.register_configured(
+        machine_id=machine_id,
+        ip=host,
+        name=name or machine_id,
+        protocol_type="focas2",
+        cnc_type=cnc_type,
+    )
+
+    log.info("setup.machine_added", id=machine_id, host=host, cnc_type=cnc_type)
+    return {"ok": True, "machine": new_machine.model_dump()}
+
+
+@router.post("/api/remove-machine")
+async def api_remove_machine(request: Request):
+    """Remove a FOCAS2 machine from the configuration and save."""
+    body = await request.json()
+    machine_id = body.get("id", "").strip()
+
+    if not machine_id:
+        return JSONResponse({"error": "Machine ID is required"}, status_code=400)
+
+    config = request.app.state.config
+
+    # Find and remove
+    original_count = len(config.focas.machines)
+    config.focas.machines = [m for m in config.focas.machines if m.id != machine_id]
+
+    if len(config.focas.machines) == original_count:
+        return JSONResponse({"error": f"Machine '{machine_id}' not found"}, status_code=404)
+
+    if not config.focas.machines:
+        config.focas.enabled = False
+
+    # Save config
+    config_path = Path("pcu20.toml")
+    await asyncio.to_thread(save_config, config, config_path)
+
+    log.info("setup.machine_removed", id=machine_id)
+    return {"ok": True}
+
+
+@router.get("/api/machines")
+async def api_configured_machines(request: Request):
+    """List all configured FOCAS2 machines."""
+    config = request.app.state.config
+    return {
+        "machines": [m.model_dump() for m in config.focas.machines],
+        "focas_enabled": config.focas.enabled,
+    }
 
 
 @router.get("/api/server-info")

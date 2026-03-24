@@ -108,3 +108,15 @@ def load_config(path: Path | None = None) -> AppConfig:
         return AppConfig.model_validate(data)
 
     return AppConfig()
+
+
+def save_config(config: AppConfig, path: Path | None = None) -> None:
+    """Save configuration to a TOML file."""
+    import tomli_w
+
+    if path is None:
+        path = Path("pcu20.toml")
+
+    data = config.model_dump()
+    with open(path, "wb") as f:
+        tomli_w.dump(data, f)

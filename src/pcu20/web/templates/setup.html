@@ -39,6 +39,97 @@
         </div>
     </div>
 
+    <!-- Configured Machines -->
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Configured Machines</h2>
+            <span class="badge badge--blue" x-text="machines.length"></span>
+        </div>
+        <div class="panel-body">
+            <template x-if="machines.length > 0">
+                <div>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>Host</th>
+                                <th>Port</th>
+                                <th>Type</th>
+                                <th style="width:80px"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="m in machines" :key="m.id">
+                                <tr>
+                                    <td><code x-text="m.id"></code></td>
+                                    <td x-text="m.name"></td>
+                                    <td><code x-text="m.host"></code></td>
+                                    <td x-text="m.port"></td>
+                                    <td class="text-muted" x-text="m.cnc_type || '—'"></td>
+                                    <td>
+                                        <button class="btn btn--sm btn--danger" @click="removeMachine(m.id)" title="Remove machine">&times;</button>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </template>
+
+            <!-- Add Machine Form -->
+            <div class="add-machine-form" style="margin-top:1rem">
+                <h3 style="margin-bottom:0.75rem">Add FOCAS2 Machine</h3>
+                <div class="form-grid">
+                    <div class="form-field">
+                        <label class="toolbar-label">Machine ID</label>
+                        <input class="input" type="text" x-model="newMachine.id" placeholder="fanuc-30i" style="width:100%">
+                    </div>
+                    <div class="form-field">
+                        <label class="toolbar-label">Display Name</label>
+                        <input class="input" type="text" x-model="newMachine.name" placeholder="Fanuc 30i-Model A" style="width:100%">
+                    </div>
+                    <div class="form-field">
+                        <label class="toolbar-label">IP Address</label>
+                        <input class="input" type="text" x-model="newMachine.host" placeholder="192.168.1.50" style="width:100%">
+                    </div>
+                    <div class="form-field">
+                        <label class="toolbar-label">Port</label>
+                        <input class="input" type="number" x-model="newMachine.port" placeholder="8193" style="width:100%">
+                    </div>
+                    <div class="form-field">
+                        <label class="toolbar-label">CNC Type</label>
+                        <select class="input" x-model="newMachine.cnc_type" style="width:100%">
+                            <option value="">Select type...</option>
+                            <option value="fanuc-30i">Fanuc 30i</option>
+                            <option value="fanuc-16i">Fanuc 16i</option>
+                            <option value="fanuc-0i">Fanuc 0i-MD</option>
+                            <option value="mori-mapps">Mori MAPPS</option>
+                        </select>
+                    </div>
+                    <div class="form-field" style="display:flex;align-items:flex-end">
+                        <button class="btn" @click="addMachine()" :disabled="!newMachine.id || !newMachine.host || addingMachine">
+                            <template x-if="addingMachine"><span>Adding...</span></template>
+                            <template x-if="!addingMachine"><span>Add Machine</span></template>
+                        </button>
+                    </div>
+                </div>
+                <template x-if="addError">
+                    <div class="test-result test-result--fail" style="margin-top:0.5rem">
+                        <span x-text="addError"></span>
+                    </div>
+                </template>
+                <template x-if="addSuccess">
+                    <div class="test-result test-result--ok" style="margin-top:0.5rem">
+                        <span x-text="addSuccess"></span>
+                    </div>
+                </template>
+            </div>
+
+            <p class="text-muted" style="margin-top:1rem;font-size:0.8rem">Machines are saved to <code>pcu20.toml</code>. Restart the server after adding machines for FOCAS2 polling to connect.</p>
+        </div>
+    </div>
+
     <!-- Network Tools -->
     <div class="panel">
         <div class="panel-header">
@@ -282,18 +373,9 @@
                     <div class="guide-step">
                         <div class="step-number">4</div>
                         <div class="step-content">
-                            <h4>Add to Configuration</h4>
-                            <p>Add the machine to your <code>pcu20.toml</code>:</p>
-                            <pre class="code-block"><code>[focas]
-enabled = true
-
-[[focas.machines]]
-id = "fanuc-30i"
-name = "Fanuc 30i-Model A"
-host = "192.168.1.50"
-port = 8193
-cnc_type = "fanuc-30i"</code></pre>
-                            <p class="text-muted">Restart this server after editing the config.</p>
+                            <h4>Add Machine</h4>
+                            <p>Use the <strong>Configured Machines</strong> form at the top of this page to add the Fanuc CNC. Fill in the IP address, select the CNC type, and click <strong>Add Machine</strong>. The config is saved automatically.</p>
+                            <p class="text-muted">Restart this server after adding the machine so FOCAS2 polling connects.</p>
                         </div>
                     </div>
 
@@ -348,13 +430,8 @@ cnc_type = "fanuc-30i"</code></pre>
                     <div class="guide-step">
                         <div class="step-number">3</div>
                         <div class="step-content">
-                            <h4>Add to Configuration</h4>
-                            <pre class="code-block"><code>[[focas.machines]]
-id = "mori-nl2500"
-name = "Mori NL2500"
-host = "192.168.1.53"
-port = 8193
-cnc_type = "mori-mapps"</code></pre>
+                            <h4>Add Machine</h4>
+                            <p>Use the <strong>Configured Machines</strong> form at the top of this page. Set the CNC type to <strong>Mori MAPPS</strong>.</p>
                         </div>
                     </div>
 
@@ -419,14 +496,64 @@ cnc_type = "mori-mapps"</code></pre>
 function setupTools() {
     return {
         activeGuide: 'pcu20',
+
+        // Machine management
+        machines: {{ focas_machines | tojson }},
+        newMachine: {id: '', name: '', host: '', port: 8193, cnc_type: ''},
+        addingMachine: false,
+        addError: '',
+        addSuccess: '',
+
+        // Network scanner
         scanSubnet: '',
         scanning: false,
         scanDone: false,
         scanResults: [],
+
+        // Connection tester
         testHost: '',
         testPort: 8193,
         testing: false,
         testResult: null,
+
+        async addMachine() {
+            this.addError = '';
+            this.addSuccess = '';
+            this.addingMachine = true;
+            try {
+                const resp = await fetch('/setup/api/add-machine', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(this.newMachine),
+                });
+                const data = await resp.json();
+                if (!resp.ok) {
+                    this.addError = data.error || 'Failed to add machine';
+                } else {
+                    this.machines.push(data.machine);
+                    this.addSuccess = `Added "${data.machine.name}" (${data.machine.host})`;
+                    this.newMachine = {id: '', name: '', host: '', port: 8193, cnc_type: ''};
+                    setTimeout(() => this.addSuccess = '', 5000);
+                }
+            } catch (e) {
+                this.addError = 'Request failed';
+            }
+            this.addingMachine = false;
+        },
+
+        async removeMachine(id) {
+            if (!confirm(`Remove machine "${id}"?`)) return;
+            try {
+                const resp = await fetch('/setup/api/remove-machine', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({id}),
+                });
+                if (resp.ok) {
+                    this.machines = this.machines.filter(m => m.id !== id);
+                }
+            } catch (e) {}
+        },
 
         async runScan() {
             if (!this.scanSubnet) return;
@@ -441,9 +568,7 @@ function setupTools() {
                 });
                 const data = await resp.json();
                 this.scanResults = data.results || [];
-            } catch (e) {
-                console.error('Scan failed:', e);
-            }
+            } catch (e) {}
             this.scanning = false;
             this.scanDone = true;
         },
