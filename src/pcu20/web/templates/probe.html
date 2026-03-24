@@ -1,0 +1,408 @@
+{% extends "base.html" %}
+{% set active_page = "probe" %}
+
+{% block title %}Probe Setup - CNC Network Manager{% endblock %}
+{% block page_title %}Probe Setup{% endblock %}
+
+{% block content %}
+<div x-data="probeSetup()">
+
+    <!-- Config bar -->
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Probe Configuration</h2>
+        </div>
+        <div class="panel-body">
+            <div class="form-grid">
+                <div class="form-field">
+                    <label class="toolbar-label">Target Machine</label>
+                    <select class="input" x-model="targetMachine">
+                        <option value="">Select machine...</option>
+                        {% for m in machines %}
+                        <option value="{{ m.machine_id }}">{{ m.name }} ({{ m.ip }})</option>
+                        {% endfor %}
+                        <option value="_download">Download G-code only</option>
+                    </select>
+                </div>
+                <div class="form-field">
+                    <label class="toolbar-label">Probe Mode</label>
+                    <select class="input" x-model="mode">
+                        <option value="manual">Manual (G31 Skip)</option>
+                        <option value="renishaw">Renishaw Macros (G65)</option>
+                    </select>
+                </div>
+                <div class="form-field">
+                    <label class="toolbar-label">Work Offset</label>
+                    <select class="input" x-model="wcs">
+                        <option value="G54">G54</option>
+                        <option value="G55">G55</option>
+                        <option value="G56">G56</option>
+                        <option value="G57">G57</option>
+                        <option value="G58">G58</option>
+                        <option value="G59">G59</option>
+                    </select>
+                </div>
+                <div class="form-field">
+                    <label class="toolbar-label">Probe Tool #</label>
+                    <input class="input" type="number" x-model="tool" min="1" max="999">
+                </div>
+                <div class="form-field">
+                    <label class="toolbar-label">Feed Rate</label>
+                    <input class="input" type="number" x-model="feed" min="1" max="5000">
+                </div>
+                <div class="form-field">
+                    <label class="toolbar-label">Output</label>
+                    <select class="input" x-model="outputMode">
+                        <option value="send">Send to machine</option>
+                        <option value="download">Download .nc file</option>
+                        <option value="serial">Drip feed (RS-232)</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cycle Selection -->
+    <div class="section-header">
+        <h2>Select Probing Cycle</h2>
+    </div>
+    <div class="probe-cycle-grid">
+
+        <div class="probe-cycle-card" :class="{'probe-cycle-card--active': cycle === 'single_surface'}" @click="selectCycle('single_surface')">
+            <div class="probe-cycle-icon">
+                <svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="10" y="35" width="60" height="35" fill="rgba(76,141,255,0.1)" stroke="var(--accent-blue)"/>
+                    <line x1="40" y1="10" x2="40" y2="35" stroke="var(--accent-green)" stroke-width="2" stroke-dasharray="4,3"/>
+                    <circle cx="40" cy="35" r="3" fill="var(--accent-green)"/>
+                    <circle cx="40" cy="10" r="4" fill="none" stroke="var(--accent-amber)" stroke-width="2"/>
+                </svg>
+            </div>
+            <div class="probe-cycle-label">Single Surface</div>
+            <div class="probe-cycle-desc">Touch one face to set X, Y, or Z</div>
+        </div>
+
+        <div class="probe-cycle-card" :class="{'probe-cycle-card--active': cycle === 'bore'}" @click="selectCycle('bore')">
+            <div class="probe-cycle-icon">
+                <svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="40" cy="45" r="25" fill="rgba(76,141,255,0.1)" stroke="var(--accent-blue)"/>
+                    <circle cx="40" cy="45" r="2" fill="var(--accent-green)"/>
+                    <line x1="15" y1="45" x2="65" y2="45" stroke="var(--accent-green)" stroke-width="1" stroke-dasharray="3,3"/>
+                    <line x1="40" y1="20" x2="40" y2="70" stroke="var(--accent-green)" stroke-width="1" stroke-dasharray="3,3"/>
+                    <circle cx="40" cy="10" r="4" fill="none" stroke="var(--accent-amber)" stroke-width="2"/>
+                </svg>
+            </div>
+            <div class="probe-cycle-label">Bore / Hole</div>
+            <div class="probe-cycle-desc">Find center of a bore or hole</div>
+        </div>
+
+        <div class="probe-cycle-card" :class="{'probe-cycle-card--active': cycle === 'boss'}" @click="selectCycle('boss')">
+            <div class="probe-cycle-icon">
+                <svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="40" cy="45" r="18" fill="rgba(76,141,255,0.15)" stroke="var(--accent-blue)" stroke-width="3"/>
+                    <circle cx="40" cy="45" r="2" fill="var(--accent-green)"/>
+                    <line x1="22" y1="45" x2="58" y2="45" stroke="var(--accent-green)" stroke-width="1" stroke-dasharray="3,3"/>
+                    <circle cx="40" cy="10" r="4" fill="none" stroke="var(--accent-amber)" stroke-width="2"/>
+                </svg>
+            </div>
+            <div class="probe-cycle-label">Boss / Cylinder</div>
+            <div class="probe-cycle-desc">Find center of a boss or dowel</div>
+        </div>
+
+        <div class="probe-cycle-card" :class="{'probe-cycle-card--active': cycle === 'corner'}" @click="selectCycle('corner')">
+            <div class="probe-cycle-icon">
+                <svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M15 25 L15 65 L55 65" fill="rgba(76,141,255,0.1)" stroke="var(--accent-blue)" stroke-width="3"/>
+                    <circle cx="15" cy="65" r="3" fill="var(--accent-green)"/>
+                    <line x1="30" y1="45" x2="15" y2="45" stroke="var(--accent-green)" stroke-width="1" stroke-dasharray="3,3"/>
+                    <line x1="35" y1="65" x2="35" y2="50" stroke="var(--accent-green)" stroke-width="1" stroke-dasharray="3,3"/>
+                    <circle cx="35" cy="40" r="4" fill="none" stroke="var(--accent-amber)" stroke-width="2"/>
+                </svg>
+            </div>
+            <div class="probe-cycle-label">Corner</div>
+            <div class="probe-cycle-desc">Find a corner from two surfaces</div>
+        </div>
+
+        <div class="probe-cycle-card" :class="{'probe-cycle-card--active': cycle === 'pocket_width'}" @click="selectCycle('pocket_width')">
+            <div class="probe-cycle-icon">
+                <svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="10" y="30" width="20" height="40" fill="rgba(76,141,255,0.15)" stroke="var(--accent-blue)" stroke-width="2"/>
+                    <rect x="50" y="30" width="20" height="40" fill="rgba(76,141,255,0.15)" stroke="var(--accent-blue)" stroke-width="2"/>
+                    <line x1="30" y1="50" x2="50" y2="50" stroke="var(--accent-green)" stroke-width="1" stroke-dasharray="3,3"/>
+                    <circle cx="40" cy="50" r="2" fill="var(--accent-green)"/>
+                    <circle cx="40" cy="15" r="4" fill="none" stroke="var(--accent-amber)" stroke-width="2"/>
+                </svg>
+            </div>
+            <div class="probe-cycle-label">Pocket / Web Width</div>
+            <div class="probe-cycle-desc">Measure width and find center</div>
+        </div>
+
+    </div>
+
+    <!-- Cycle Parameters -->
+    <template x-if="cycle">
+        <div class="panel">
+            <div class="panel-header">
+                <h2>Cycle Parameters</h2>
+                <span class="badge badge--blue" x-text="cycleLabel"></span>
+            </div>
+            <div class="panel-body">
+
+                <!-- Single Surface params -->
+                <template x-if="cycle === 'single_surface'">
+                    <div class="form-grid">
+                        <div class="form-field">
+                            <label class="toolbar-label">Probe Axis</label>
+                            <select class="input" x-model="params.axis">
+                                <option value="X">X</option>
+                                <option value="Y">Y</option>
+                                <option value="Z">Z</option>
+                            </select>
+                        </div>
+                        <div class="form-field">
+                            <label class="toolbar-label">Direction</label>
+                            <select class="input" x-model="params.direction">
+                                <option value="-">Negative (-)</option>
+                                <option value="+">Positive (+)</option>
+                            </select>
+                        </div>
+                        <div class="form-field">
+                            <label class="toolbar-label">Approach Position</label>
+                            <input class="input" type="number" x-model="params.approach_pos" step="0.1">
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Bore params -->
+                <template x-if="cycle === 'bore'">
+                    <div class="form-grid">
+                        <div class="form-field">
+                            <label class="toolbar-label">Expected Diameter</label>
+                            <input class="input" type="number" x-model="params.diameter" step="0.1">
+                        </div>
+                        <div class="form-field">
+                            <label class="toolbar-label">Probe Depth (Z)</label>
+                            <input class="input" type="number" x-model="params.depth" step="0.1">
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Boss params -->
+                <template x-if="cycle === 'boss'">
+                    <div class="form-grid">
+                        <div class="form-field">
+                            <label class="toolbar-label">Expected Diameter</label>
+                            <input class="input" type="number" x-model="params.diameter" step="0.1">
+                        </div>
+                        <div class="form-field">
+                            <label class="toolbar-label">Probe Z Height</label>
+                            <input class="input" type="number" x-model="params.probe_z" step="0.1">
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Corner params -->
+                <template x-if="cycle === 'corner'">
+                    <div class="form-grid">
+                        <div class="form-field">
+                            <label class="toolbar-label">Corner Type</label>
+                            <select class="input" x-model="params.corner">
+                                <option value="XY++">X+ Y+ (front-right)</option>
+                                <option value="XY+-">X+ Y- (back-right)</option>
+                                <option value="XY-+">X- Y+ (front-left)</option>
+                                <option value="XY--">X- Y- (back-left)</option>
+                            </select>
+                        </div>
+                        <div class="form-field">
+                            <label class="toolbar-label">Probe Z Height</label>
+                            <input class="input" type="number" x-model="params.probe_z" step="0.1">
+                        </div>
+                        <div class="form-field">
+                            <label class="toolbar-label">Approach Distance</label>
+                            <input class="input" type="number" x-model="params.distance" step="0.1">
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Pocket params -->
+                <template x-if="cycle === 'pocket_width'">
+                    <div class="form-grid">
+                        <div class="form-field">
+                            <label class="toolbar-label">Measure Axis</label>
+                            <select class="input" x-model="params.axis">
+                                <option value="X">X</option>
+                                <option value="Y">Y</option>
+                            </select>
+                        </div>
+                        <div class="form-field">
+                            <label class="toolbar-label">Expected Width</label>
+                            <input class="input" type="number" x-model="params.width" step="0.1">
+                        </div>
+                        <div class="form-field">
+                            <label class="toolbar-label">Probe Depth (Z)</label>
+                            <input class="input" type="number" x-model="params.depth" step="0.1">
+                        </div>
+                    </div>
+                </template>
+
+                <div style="margin-top:1rem">
+                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+                        <input type="checkbox" x-model="setWcs">
+                        <span>Set <strong x-text="wcs"></strong> at end of cycle</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- Generate / Preview -->
+    <template x-if="cycle">
+        <div class="panel">
+            <div class="panel-header">
+                <h2>Generated G-Code</h2>
+                <div class="panel-actions">
+                    <button class="btn" @click="generate()" :disabled="generating">
+                        <template x-if="generating"><span>Generating...</span></template>
+                        <template x-if="!generating"><span>Generate</span></template>
+                    </button>
+                    <template x-if="gcode">
+                        <button class="btn" @click="copyGcode()">Copy</button>
+                    </template>
+                    <template x-if="gcode">
+                        <button class="btn" @click="downloadGcode()">Download .nc</button>
+                    </template>
+                    <template x-if="gcode && targetMachine && targetMachine !== '_download' && outputMode === 'send'">
+                        <button class="btn btn--primary" @click="sendToMachine()">Send to Machine</button>
+                    </template>
+                </div>
+            </div>
+            <div class="panel-body" style="padding:0">
+                <template x-if="gcode">
+                    <pre class="gcode-preview"><code x-text="gcode"></code></pre>
+                </template>
+                <template x-if="!gcode">
+                    <div class="empty-state empty-state--small">
+                        <p>Click Generate to preview the G-code</p>
+                    </div>
+                </template>
+            </div>
+            <template x-if="sendResult">
+                <div class="panel-body" style="padding:0.75rem 1.25rem;border-top:1px solid var(--border)">
+                    <div class="test-result" :class="sendResult.ok ? 'test-result--ok' : 'test-result--fail'">
+                        <span x-text="sendResult.message"></span>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </template>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function probeSetup() {
+    return {
+        // Config
+        targetMachine: '',
+        mode: 'manual',
+        wcs: 'G54',
+        tool: 99,
+        feed: 100,
+        outputMode: 'send',
+        setWcs: true,
+
+        // Cycle
+        cycle: '',
+        params: {},
+        gcode: '',
+        generating: false,
+        sendResult: null,
+
+        get cycleLabel() {
+            const labels = {
+                single_surface: 'Single Surface',
+                bore: 'Bore / Hole',
+                boss: 'Boss / Cylinder',
+                corner: 'Corner',
+                pocket_width: 'Pocket Width',
+            };
+            return labels[this.cycle] || '';
+        },
+
+        selectCycle(c) {
+            this.cycle = c;
+            this.gcode = '';
+            this.sendResult = null;
+            // Set default params per cycle
+            const defaults = {
+                single_surface: {axis: 'Z', direction: '-', approach_pos: 10, expected_pos: 0},
+                bore: {diameter: 50, depth: -10},
+                boss: {diameter: 50, probe_z: -5},
+                corner: {corner: 'XY++', probe_z: -5, distance: 20},
+                pocket_width: {axis: 'X', width: 50, depth: -10},
+            };
+            this.params = defaults[c] || {};
+        },
+
+        async generate() {
+            this.generating = true;
+            this.sendResult = null;
+            try {
+                const resp = await fetch('/probe/api/generate', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        cycle: this.cycle,
+                        mode: this.mode,
+                        params: {
+                            ...this.params,
+                            wcs: this.wcs,
+                            feed: this.feed,
+                            tool: this.tool,
+                            clearance: 5.0,
+                            set_wcs: this.setWcs,
+                        }
+                    }),
+                });
+                const data = await resp.json();
+                if (data.gcode) {
+                    this.gcode = data.gcode;
+                } else {
+                    this.gcode = '(Error: ' + (data.error || 'Unknown error') + ')';
+                }
+            } catch (e) {
+                this.gcode = '(Error generating G-code)';
+            }
+            this.generating = false;
+        },
+
+        copyGcode() {
+            navigator.clipboard.writeText(this.gcode);
+        },
+
+        downloadGcode() {
+            const blob = new Blob([this.gcode], {type: 'text/plain'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `probe_${this.cycle}_${this.wcs}.nc`;
+            a.click();
+            URL.revokeObjectURL(url);
+        },
+
+        async sendToMachine() {
+            this.sendResult = null;
+            try {
+                // TODO: Send via FOCAS2 cnc_download when client is implemented
+                this.sendResult = {
+                    ok: false,
+                    message: 'FOCAS2 file transfer not yet implemented. Use Download or Copy for now.'
+                };
+            } catch (e) {
+                this.sendResult = {ok: false, message: 'Send failed: ' + e};
+            }
+        },
+    };
+}
+</script>
+{% endblock %}

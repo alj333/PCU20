@@ -55,6 +55,7 @@ def create_web_app(
     from pcu20.web.routes.shares import router as shares_router
     from pcu20.web.routes.files import router as files_router
     from pcu20.web.routes.logs import router as logs_router
+    from pcu20.web.routes.probe import router as probe_router
     from pcu20.web.routes.setup import router as setup_router
     from pcu20.web.websocket import router as ws_router
 
@@ -63,6 +64,7 @@ def create_web_app(
     app.include_router(shares_router, prefix="/shares")
     app.include_router(files_router, prefix="/files")
     app.include_router(logs_router, prefix="/logs")
+    app.include_router(probe_router, prefix="/probe")
     app.include_router(setup_router, prefix="/setup")
     app.include_router(ws_router)
 
