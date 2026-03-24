@@ -53,9 +53,10 @@
                 <div class="form-field">
                     <label class="toolbar-label">Output</label>
                     <select class="input" x-model="outputMode">
-                        <option value="send">Send to machine</option>
                         <option value="download">Download .nc file</option>
+                        <option value="send">Send via FOCAS2</option>
                         <option value="serial">Drip feed (RS-232)</option>
+                        <option value="tcp_drip">Drip feed (LAN unit)</option>
                     </select>
                 </div>
             </div>
@@ -270,9 +271,6 @@
                     <template x-if="gcode">
                         <button class="btn" @click="downloadGcode()">Download .nc</button>
                     </template>
-                    <template x-if="gcode && targetMachine && targetMachine !== '_download' && outputMode === 'send'">
-                        <button class="btn btn--primary" @click="sendToMachine()">Send to Machine</button>
-                    </template>
                 </div>
             </div>
             <div class="panel-body" style="padding:0">
@@ -285,13 +283,111 @@
                     </div>
                 </template>
             </div>
-            <template x-if="sendResult">
-                <div class="panel-body" style="padding:0.75rem 1.25rem;border-top:1px solid var(--border)">
-                    <div class="test-result" :class="sendResult.ok ? 'test-result--ok' : 'test-result--fail'">
-                        <span x-text="sendResult.message"></span>
+        </div>
+    </template>
+
+    <!-- Drip Feed / Send Panel -->
+    <template x-if="gcode && (outputMode === 'serial' || outputMode === 'tcp_drip')">
+        <div class="panel">
+            <div class="panel-header">
+                <h2 x-text="outputMode === 'serial' ? 'RS-232 Drip Feed' : 'LAN Drip Feed'"></h2>
+                <template x-if="dripStatus && dripStatus.state === 'sending'">
+                    <span class="badge badge--green">Sending</span>
+                </template>
+            </div>
+            <div class="panel-body">
+                <!-- RS-232 config -->
+                <template x-if="outputMode === 'serial'">
+                    <div class="form-grid" style="margin-bottom:1rem">
+                        <div class="form-field">
+                            <label class="toolbar-label">Serial Port</label>
+                            <select class="input" x-model="serialPort">
+                                <option value="">Select port...</option>
+                                {% for p in serial_ports %}
+                                <option value="{{ p.device }}">{{ p.device }} — {{ p.description }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-field">
+                            <label class="toolbar-label">Baud Rate</label>
+                            <select class="input" x-model="serialBaud">
+                                <option value="4800">4800</option>
+                                <option value="9600" selected>9600</option>
+                                <option value="19200">19200</option>
+                                <option value="38400">38400</option>
+                                <option value="115200">115200</option>
+                            </select>
+                        </div>
+                        <div class="form-field">
+                            <label class="toolbar-label">&nbsp;</label>
+                            <button class="btn btn--primary" @click="startDripSerial()" :disabled="!serialPort || dripActive">
+                                Send via RS-232
+                            </button>
+                        </div>
                     </div>
+                </template>
+
+                <!-- TCP/LAN drip config -->
+                <template x-if="outputMode === 'tcp_drip'">
+                    <div class="form-grid" style="margin-bottom:1rem">
+                        <div class="form-field">
+                            <label class="toolbar-label">Drip Feed Unit IP</label>
+                            <input class="input" type="text" x-model="tcpDripHost" placeholder="192.168.1.200">
+                        </div>
+                        <div class="form-field">
+                            <label class="toolbar-label">Port</label>
+                            <input class="input" type="number" x-model="tcpDripPort" placeholder="9100">
+                        </div>
+                        <div class="form-field">
+                            <label class="toolbar-label">&nbsp;</label>
+                            <button class="btn btn--primary" @click="startDripTcp()" :disabled="!tcpDripHost || dripActive">
+                                Send via LAN
+                            </button>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Drip feed progress -->
+                <template x-if="dripStatus">
+                    <div>
+                        <div class="drip-progress">
+                            <div class="drip-progress-bar" :style="'width:' + dripStatus.progress + '%'"></div>
+                        </div>
+                        <div class="drip-info">
+                            <span>
+                                <strong x-text="dripStatus.state.toUpperCase()"></strong>
+                                &mdash; <span x-text="dripStatus.lines_sent"></span> / <span x-text="dripStatus.total_lines"></span> lines
+                                (<span x-text="dripStatus.progress"></span>%)
+                            </span>
+                            <span class="text-muted" x-text="dripStatus.elapsed + 's'"></span>
+                        </div>
+                        <template x-if="dripStatus.error">
+                            <div class="test-result test-result--fail" style="margin-top:0.5rem">
+                                <span x-text="dripStatus.error"></span>
+                            </div>
+                        </template>
+                        <template x-if="dripStatus.state === 'completed'">
+                            <div class="test-result test-result--ok" style="margin-top:0.5rem">
+                                Transfer complete — <span x-text="dripStatus.bytes_sent"></span> bytes sent
+                            </div>
+                        </template>
+                        <template x-if="dripActive">
+                            <button class="btn btn--danger" style="margin-top:0.5rem" @click="cancelDrip()">Cancel</button>
+                        </template>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </template>
+
+    <!-- Send result for FOCAS2 -->
+    <template x-if="sendResult">
+        <div class="panel">
+            <div class="panel-body">
+                <div class="test-result" :class="sendResult.ok ? 'test-result--ok' : 'test-result--fail'">
+                    <span x-text="sendResult.message"></span>
                 </div>
-            </template>
+            </div>
         </div>
     </template>
 
@@ -308,7 +404,7 @@ function probeSetup() {
         wcs: 'G54',
         tool: 99,
         feed: 100,
-        outputMode: 'send',
+        outputMode: 'download',
         setWcs: true,
 
         // Cycle
@@ -317,6 +413,16 @@ function probeSetup() {
         gcode: '',
         generating: false,
         sendResult: null,
+
+        // Drip feed
+        serialPort: '',
+        serialBaud: '9600',
+        tcpDripHost: '',
+        tcpDripPort: 9100,
+        dripSessionId: null,
+        dripStatus: null,
+        dripActive: false,
+        dripPollTimer: null,
 
         get cycleLabel() {
             const labels = {
@@ -390,16 +496,75 @@ function probeSetup() {
             URL.revokeObjectURL(url);
         },
 
-        async sendToMachine() {
-            this.sendResult = null;
+        // --- Drip Feed ---
+        async startDripSerial() {
+            this.dripActive = true;
+            this.dripStatus = null;
             try {
-                // TODO: Send via FOCAS2 cnc_download when client is implemented
-                this.sendResult = {
-                    ok: false,
-                    message: 'FOCAS2 file transfer not yet implemented. Use Download or Copy for now.'
-                };
+                const resp = await fetch('/probe/api/drip-feed/serial', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        gcode: this.gcode,
+                        port: this.serialPort,
+                        baud: parseInt(this.serialBaud),
+                    }),
+                });
+                const data = await resp.json();
+                if (data.session_id) {
+                    this.dripSessionId = data.session_id;
+                    this.pollDripStatus();
+                }
             } catch (e) {
-                this.sendResult = {ok: false, message: 'Send failed: ' + e};
+                this.dripStatus = {state: 'error', error: 'Failed to start', progress: 0, lines_sent: 0, total_lines: 0, bytes_sent: 0, elapsed: 0};
+                this.dripActive = false;
+            }
+        },
+
+        async startDripTcp() {
+            this.dripActive = true;
+            this.dripStatus = null;
+            try {
+                const resp = await fetch('/probe/api/drip-feed/tcp', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        gcode: this.gcode,
+                        host: this.tcpDripHost,
+                        port: parseInt(this.tcpDripPort),
+                    }),
+                });
+                const data = await resp.json();
+                if (data.session_id) {
+                    this.dripSessionId = data.session_id;
+                    this.pollDripStatus();
+                }
+            } catch (e) {
+                this.dripStatus = {state: 'error', error: 'Failed to start', progress: 0, lines_sent: 0, total_lines: 0, bytes_sent: 0, elapsed: 0};
+                this.dripActive = false;
+            }
+        },
+
+        pollDripStatus() {
+            if (this.dripPollTimer) clearInterval(this.dripPollTimer);
+            this.dripPollTimer = setInterval(async () => {
+                try {
+                    const resp = await fetch(`/probe/api/drip-feed/status/${this.dripSessionId}`);
+                    this.dripStatus = await resp.json();
+                    if (['completed', 'error', 'cancelled'].includes(this.dripStatus.state)) {
+                        clearInterval(this.dripPollTimer);
+                        this.dripActive = false;
+                    }
+                } catch (e) {
+                    clearInterval(this.dripPollTimer);
+                    this.dripActive = false;
+                }
+            }, 500);
+        },
+
+        async cancelDrip() {
+            if (this.dripSessionId) {
+                await fetch(`/probe/api/drip-feed/cancel/${this.dripSessionId}`, {method: 'POST'});
             }
         },
     };

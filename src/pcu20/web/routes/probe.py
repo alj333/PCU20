@@ -1,11 +1,24 @@
-"""Probe setup and G-code generation routes."""
+"""Probe setup, G-code generation, and drip feed routes."""
 
 from __future__ import annotations
+
+import asyncio
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+import structlog
+
+from pcu20.serial.drip_feed import DripFeeder, list_serial_ports
+
+log = structlog.get_logger()
+
 router = APIRouter()
+
+# Active drip feed sessions (keyed by a simple session counter)
+_drip_sessions: dict[int, DripFeeder] = {}
+_tcp_sessions: dict[int, object] = {}
+_session_counter = 0
 
 
 @router.get("/")
@@ -14,15 +27,105 @@ async def probe_page(request: Request):
     templates = request.app.state.templates
     machine_registry = request.app.state.machine_registry
 
-    # Only show Fanuc/Mori machines (probe feature is Fanuc-only)
     machines = [
         m for m in machine_registry.list_all()
         if m.get("protocol_type") == "focas2"
     ]
 
+    serial_ports = await asyncio.to_thread(list_serial_ports)
+
     return templates.TemplateResponse(request, "probe.html", {
         "machines": machines,
+        "serial_ports": serial_ports,
     })
+
+
+@router.get("/api/serial-ports")
+async def api_serial_ports():
+    """List available serial ports."""
+    ports = await asyncio.to_thread(list_serial_ports)
+    return {"ports": ports}
+
+
+@router.post("/api/drip-feed/serial")
+async def api_drip_feed_serial(request: Request):
+    """Send G-code via RS-232 drip feed."""
+    global _session_counter
+    body = await request.json()
+    gcode = body.get("gcode", "")
+    port = body.get("port", "")
+    baud = int(body.get("baud", 9600))
+    stop_bits = int(body.get("stop_bits", 2))
+    parity = body.get("parity", "none")
+
+    if not gcode:
+        return JSONResponse({"error": "G-code required"}, status_code=400)
+    if not port:
+        return JSONResponse({"error": "Serial port required"}, status_code=400)
+
+    feeder = DripFeeder(
+        port=port,
+        baud_rate=baud,
+        stop_bits=stop_bits,
+        parity=parity,
+    )
+
+    _session_counter += 1
+    session_id = _session_counter
+    _drip_sessions[session_id] = feeder
+
+    # Run in background thread
+    asyncio.get_event_loop().run_in_executor(None, feeder.send_sync, gcode)
+
+    log.info("drip_feed.serial_started", port=port, baud=baud, session=session_id)
+    return {"session_id": session_id, "state": "started"}
+
+
+@router.post("/api/drip-feed/tcp")
+async def api_drip_feed_tcp(request: Request):
+    """Send G-code via TCP/LAN drip feed unit."""
+    global _session_counter
+    body = await request.json()
+    gcode = body.get("gcode", "")
+    host = body.get("host", "")
+    port = int(body.get("port", 9100))
+
+    if not gcode:
+        return JSONResponse({"error": "G-code required"}, status_code=400)
+    if not host:
+        return JSONResponse({"error": "Host required"}, status_code=400)
+
+    from pcu20.serial.tcp_drip import TCPDripFeeder
+    feeder = TCPDripFeeder(host=host, port=port)
+
+    _session_counter += 1
+    session_id = _session_counter
+    _tcp_sessions[session_id] = feeder
+
+    # Run as async task
+    asyncio.create_task(feeder.send(gcode))
+
+    log.info("drip_feed.tcp_started", host=host, port=port, session=session_id)
+    return {"session_id": session_id, "state": "started"}
+
+
+@router.get("/api/drip-feed/status/{session_id}")
+async def api_drip_feed_status(session_id: int):
+    """Get drip feed session status."""
+    feeder = _drip_sessions.get(session_id) or _tcp_sessions.get(session_id)
+    if not feeder:
+        return JSONResponse({"error": "Session not found"}, status_code=404)
+    return {"session_id": session_id, **feeder.status.to_dict()}
+
+
+@router.post("/api/drip-feed/cancel/{session_id}")
+async def api_drip_feed_cancel(session_id: int):
+    """Cancel an active drip feed session."""
+    feeder = _drip_sessions.get(session_id) or _tcp_sessions.get(session_id)
+    if not feeder:
+        return JSONResponse({"error": "Session not found"}, status_code=404)
+    feeder.cancel()
+    return {"session_id": session_id, "state": "cancelling"}
 
 
 @router.post("/api/generate")
