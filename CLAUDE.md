@@ -165,7 +165,7 @@ The dashboard (`v0.2.0`, branded "CNC Network Manager") is protocol-aware:
 - **Machine cards have `id="machine-{machine_id}"`** so `app.js` can target them for live updates. If adding new machine card elements, keep this convention.
 - **CNC status CSS classes**: `machine-cnc-status--running` (green), `--idle` (blue), `--alarm` (red), `--stopped` (amber), `--unknown` (grey). Match the `CNCStatus` enum values.
 - **Machines page**: Shows protocol, CNC type, status, and program columns. Axis position section for connected FOCAS machines.
-- **Setup page** (`/setup`): Tabbed setup guides for PCU20, Fanuc, and Mori MAPPS with step-by-step CNC configuration instructions. Network scanner (scans /24 subnets for ports 6743 and 8193). Connection tester with latency measurement. Server info panel with IPs and port reference. Network requirements table for firewall config.
+- **Setup page** (`/setup`): Machine management (add/remove FOCAS2 machines via web form, saves to `pcu20.toml` automatically). Tabbed setup guides for PCU20, Fanuc, and Mori MAPPS with step-by-step CNC configuration instructions. Network scanner (scans /24 subnets for ports 6743 and 8193). Connection tester with latency measurement. Server info panel with IPs and port reference. Network requirements table for firewall config. API: `POST /setup/api/add-machine`, `POST /setup/api/remove-machine`, `GET /setup/api/machines`.
 - **Activity feed filters out `machine.status`** events (too frequent) — only shows connects, disconnects, alarms, and file transfers.
 
 ### WebSocket event flow
@@ -194,6 +194,7 @@ The dashboard (`v0.2.0`, branded "CNC Network Manager") is protocol-aware:
 - **No web dashboard authentication** — all routes are public (acceptable for LAN-only use).
 - **`app.js` connected count can drift** — should periodically fetch true count from API.
 - **File transfer UI for FOCAS** — not yet built; machines page shows status but no upload/download buttons.
+- **Machine add requires restart** — adding a machine via the web UI saves config and registers in the registry, but the FOCAS2 connector only connects to machines at startup. Need hot-reload or a "reconnect" button.
 
 ## What's Left to Build
 
