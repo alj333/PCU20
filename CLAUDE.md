@@ -52,6 +52,9 @@ src/pcu20/
 │   ├── connector.py    # FocasConnector(BaseProtocolConnector) — outbound client
 │   ├── poller.py       # FocasPoller — async status polling loop
 │   └── types.py        # FOCAS2-specific enums (FocasRunState, FocasMode, etc.)
+├── serial/             # RS-232 and LAN drip feed
+│   ├── drip_feed.py    # RS-232 drip feeder (Fanuc XON/XOFF protocol, pyserial)
+│   └── tcp_drip.py     # TCP/LAN drip feed for network DNC units
 ├── storage/
 │   ├── shares.py       # Virtual path → local filesystem mapping (protocol-agnostic)
 │   ├── filesystem.py   # Sandboxed file I/O helpers
@@ -62,7 +65,7 @@ src/pcu20/
 └── web/
     ├── app.py          # FastAPI factory (uses ConnectorRegistry, not tcp_server)
     ├── websocket.py    # WebSocket hub ↔ EventBus
-    ├── routes/         # Page routes (dashboard, machines, shares, files, logs, setup)
+    ├── routes/         # Page routes (dashboard, machines, shares, files, logs, probe, setup)
     ├── templates/      # Jinja2 + htmx templates
     └── static/         # CSS, JS (no build step, no Node.js)
 tools/
@@ -166,6 +169,9 @@ The dashboard (`v0.2.0`, branded "CNC Network Manager") is protocol-aware:
 - **CNC status CSS classes**: `machine-cnc-status--running` (green), `--idle` (blue), `--alarm` (red), `--stopped` (amber), `--unknown` (grey). Match the `CNCStatus` enum values.
 - **Machines page**: Shows protocol, CNC type, status, and program columns. Axis position section for connected FOCAS machines.
 - **Setup page** (`/setup`): Machine management (add/remove FOCAS2 machines via web form, saves to `pcu20.toml` automatically). Tabbed setup guides for PCU20, Fanuc, and Mori MAPPS with step-by-step CNC configuration instructions. Network scanner (scans /24 subnets for ports 6743 and 8193). Connection tester with latency measurement. Server info panel with IPs and port reference. Network requirements table for firewall config. API: `POST /setup/api/add-machine`, `POST /setup/api/remove-machine`, `GET /setup/api/machines`.
+- **Probe page** (`/probe`): Visual probing cycle setup for Fanuc/Mori machines. Five cycles with SVG diagrams: single surface, bore, boss, corner, pocket width. Two modes: manual (G31 skip) and Renishaw (G65 macros). Generates G-code with optional WCS setting via G10 L2. Four output modes: download .nc file, send via FOCAS2, RS-232 drip feed, LAN drip feed. Progress bar with live line count for drip feed sessions. API: `POST /probe/api/generate`, `POST /probe/api/drip-feed/serial`, `POST /probe/api/drip-feed/tcp`, `GET /probe/api/drip-feed/status/{id}`.
+- **RS-232 drip feed** (`serial/drip_feed.py`): Fanuc protocol — XON/XOFF flow control, waits for DC2/XON ready signal, sends line-by-line, handles XOFF pause. Default 9600 baud, 8N2. Runs in thread executor. Uses `pyserial`.
+- **LAN drip feed** (`serial/tcp_drip.py`): For network DNC units. Plain TCP, sends G-code as ASCII. Async implementation.
 - **Activity feed filters out `machine.status`** events (too frequent) — only shows connects, disconnects, alarms, and file transfers.
 
 ### WebSocket event flow
