@@ -267,33 +267,46 @@
 
                 <!-- Outside Box params -->
                 <template x-if="cycle === 'outside_box'">
-                    <div class="form-grid">
-                        <div class="form-field">
-                            <label class="toolbar-label">Stock X Width (est.)</label>
-                            <input class="input" type="number" x-model="params.x_width" step="1">
+                    <div>
+                        <div class="form-grid" style="margin-bottom:0.75rem">
+                            <div class="form-field">
+                                <label class="toolbar-label">Stock X Width (est.)</label>
+                                <input class="input" type="number" x-model="params.x_width" step="1">
+                            </div>
+                            <div class="form-field">
+                                <label class="toolbar-label">Stock Y Width (est.)</label>
+                                <input class="input" type="number" x-model="params.y_width" step="1">
+                            </div>
+                            <div class="form-field">
+                                <label class="toolbar-label">X/Y Probe Depth</label>
+                                <input class="input" type="number" x-model="params.probe_z" step="1" title="Z depth below stock top to probe X/Y sides">
+                            </div>
                         </div>
-                        <div class="form-field">
-                            <label class="toolbar-label">Stock Y Width (est.)</label>
-                            <input class="input" type="number" x-model="params.y_width" step="1">
+                        <div class="form-grid">
+                            <div class="form-field">
+                                <label class="toolbar-label">Safety (beyond edge)</label>
+                                <input class="input" type="number" x-model="params.safety" step="1">
+                            </div>
+                            <div class="form-field">
+                                <label class="toolbar-label">Z Offset</label>
+                                <input class="input" type="number" x-model="params.z_offset" step="0.001" title="Offset to add to Z (e.g. for fixture plate thickness)">
+                            </div>
+                            <div class="form-field">
+                                <label class="toolbar-label">Measure Feed</label>
+                                <input class="input" type="number" x-model="params.measure_feed" step="1" title="Slow feed for second touch (precision)">
+                            </div>
+                            <div class="form-field">
+                                <label class="toolbar-label">Retract Dist.</label>
+                                <input class="input" type="number" x-model="params.retract" step="0.1" title="Distance to retract before slow re-touch">
+                            </div>
+                            <div class="form-field" style="align-self:end">
+                                <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+                                    <input type="checkbox" x-model="params.probe_top">
+                                    <span>Probe Z top</span>
+                                </label>
+                            </div>
                         </div>
-                        <div class="form-field">
-                            <label class="toolbar-label">Z Start Height</label>
-                            <input class="input" type="number" x-model="params.z_start" step="1">
-                        </div>
-                        <div class="form-field">
-                            <label class="toolbar-label">X/Y Probe Depth (Z)</label>
-                            <input class="input" type="number" x-model="params.probe_z" step="1">
-                        </div>
-                        <div class="form-field">
-                            <label class="toolbar-label">Safety Clearance</label>
-                            <input class="input" type="number" x-model="params.safety" step="1">
-                        </div>
-                        <div class="form-field" style="align-self:end">
-                            <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
-                                <input type="checkbox" x-model="params.probe_top">
-                                <span>Probe Z top</span>
-                            </label>
-                        </div>
+                        <p class="text-muted" style="margin-top:0.75rem;font-size:0.75rem">Position probe near center of stock, ~10mm above. All moves are incremental until each axis WCS is set. Double-touch: fast approach then slow re-touch for precision.</p>
                     </div>
                 </template>
 
@@ -499,7 +512,7 @@ function probeSetup() {
                 boss: {diameter: 50, probe_z: -5},
                 corner: {corner: 'XY++', probe_z: -5, distance: 20},
                 pocket_width: {axis: 'X', width: 50, depth: -10},
-                outside_box: {x_width: 100, y_width: 100, z_start: 10, probe_z: -10, safety: 20, probe_top: true},
+                outside_box: {x_width: 100, y_width: 100, probe_z: -10, safety: 20, z_offset: 0, measure_feed: 50, retract: 1.0, probe_top: true},
             };
             this.params = defaults[c] || {};
         },
